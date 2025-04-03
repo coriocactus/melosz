@@ -5,27 +5,46 @@ module Main where
 import qualified Control.Monad as Monad
 import qualified Control.Monad.Reader as MonadReader
 import qualified Control.Monad.State as MonadState
-import qualified System.Random as Random
-import qualified Data.ByteString as B
+import qualified Data.ByteString as BS
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.List as List
+import qualified Data.String as String
+import qualified System.Random as Random
+import qualified Text.Printf as Printf
 
-newtype UserId = UserId B.ByteString
+newtype UserId = UserId BS.ByteString
   deriving (Show, Eq, Ord)
 
+instance String.IsString UserId where
+  fromString s = UserId (String.fromString s)
+
+newtype OptionId = OptionId BS.ByteString
+  deriving (Show, Eq, Ord)
+
+instance String.IsString OptionId where
+  fromString s = OptionId (String.fromString s)
+
 data Option = Option
-  { optionId :: B.ByteString
-  , optionName :: B.ByteString
+  { optionId :: OptionId
+  , optionName :: BS.ByteString
   } deriving (Show, Eq, Ord)
 
-data MatchResult = Win | Draw | Loss
+data MatchResult = Win | Loss
   deriving (Show, Eq)
+
+data Comparison = Comparison
+  { compUser :: UserId
+  , compOption1 :: Option
+  , compOption2 :: Option
+  , compResult :: MatchResult
+  , compTimestamp :: Int
+  } deriving (Show, Eq)
 
 data AppState = AppState
   { stateUsers :: Set.Set UserId
   , stateOptions :: Set.Set Option
-  , stateRatings :: Map.Map (UserId, B.ByteString) Double
+  , stateRatings :: Map.Map (UserId, OptionId) Double
   , stateComparisons :: [Comparison]
   , stateNextTimestamp :: Int
   }
@@ -36,115 +55,6 @@ data AppConfig = AppConfig
   }
 
 type App = MonadReader.ReaderT AppConfig (MonadState.StateT AppState IO)
-
-createOption :: B.ByteString -> B.ByteString -> Option
-createOption oid name = Option oid name
-
-createUser :: B.ByteString -> UserId
-createUser = UserId
-
-getRating :: UserId -> Option -> App Double
-getRating userId option = do
-  ratings <- MonadState.gets stateRatings
-  initialRating <- MonadReader.asks configInitialRating
-  pure $ Map.findWithDefault initialRating
-    (userId, optionId option) ratings
-
-calculateExpectedScore :: Double -> Double -> Double
-calculateExpectedScore aRating bRating =
-  1.0 / (1.0 + 10.0 ** ((bRating - aRating) / 400.0))
-
-resultToScore :: MatchResult -> Double
-resultToScore Win  = 1.0
-resultToScore Draw = 0.5
-resultToScore Loss = 0.0
-
-flipResult :: MatchResult -> MatchResult
-flipResult Win  = Loss
-flipResult Loss = Win
-flipResult Draw = Draw
-
-updateRating :: UserId -> Option -> Option -> MatchResult -> App ()
-updateRating userId option opponent result = do
-  kFactor <- MonadReader.asks configKFactor
-  optionRating <- getRating userId option
-  opponentRating <- getRating userId opponent
-
-  let expected = calculateExpectedScore optionRating opponentRating
-      actual = resultToScore result
-      newRating = optionRating + kFactor * (actual - expected)
-
-  MonadState.modify $ \s -> s { stateRatings = Map.insert
-    (userId, optionId option) newRating (stateRatings s) }
-
-updateRatings :: UserId -> Option -> Option -> MatchResult -> App ()
-updateRatings userId option1 option2 result = do
-  updateRating userId option1 option2 result
-  updateRating userId option2 option1 (flipResult result)
-
-getRandomOptionPair :: App (Maybe (Option, Option))
-getRandomOptionPair = do
-  options <- MonadState.gets (Set.toList . stateOptions)
-  if length options < 2
-    then pure Nothing
-    else do
-      i <- MonadState.liftIO $ Random.randomRIO (0, length options - 1)
-      let option1 = options !! i
-      j <- MonadState.liftIO $ Random.randomRIO (0, length options - 2)
-      let option2 = options !! (if j >= i then j + 1 else j)
-      pure $ Just (option1, option2)
-
-presentComparison :: UserId -> Option -> Option -> App MatchResult
-presentComparison userId option1 option2 = do
-  MonadState.liftIO $ putStrLn $ "User: " ++ show userId
-  MonadState.liftIO $ putStrLn "Choose between:"
-  MonadState.liftIO $ putStrLn $ "1. " ++ show (optionName option1)
-  MonadState.liftIO $ putStrLn $ "2. " ++ show (optionName option2)
-
-  choice <- MonadState.liftIO getLine
-  pure $ case choice of
-    "1" -> Win
-    _   -> Loss
-
-addOption :: Option -> App ()
-addOption option = MonadState.modify $ \s ->
-  s { stateOptions = Set.insert option (stateOptions s) }
-
-addUser :: UserId -> App ()
-addUser userId = MonadState.modify $ \s ->
-  s { stateUsers = Set.insert userId (stateUsers s) }
-
-getUserRatings :: UserId -> App [(Option, Double)]
-getUserRatings userId = do
-  options <- MonadState.gets stateOptions
-  ratings <- MonadState.gets stateRatings
-  initialRating <- MonadReader.asks configInitialRating
-
-  let userRatings = flip map (Set.toList options) $ \option ->
-        let rating = Map.findWithDefault initialRating (userId, optionId option) ratings
-        in (option, rating)
-
-  pure $ sortByRating userRatings
-  where
-    sortByRating = List.sortBy (\(_, r1) (_, r2) -> compare r2 r1)
-
-runEvaluationSession :: UserId -> Int -> App ()
-runEvaluationSession userId numComparisons = do
-  Monad.forM_ [1..numComparisons] $ \i -> do
-    optionPair <- getNextComparisonPair userId
-    case optionPair of
-      Nothing -> MonadState.liftIO $ putStrLn "Not enough options to compare"
-      Just (option1, option2) -> do
-        MonadState.liftIO $ putStrLn $ "Comparison " ++ show i ++ ":"
-        result <- presentComparison userId option1 option2
-
-        recordComparison userId option1 option2 result
-
-        updateRatings userId option1 option2 result
-
-        displaySessionStatus userId
-        displayRatings userId
-        MonadState.liftIO $ putStrLn ""
 
 initialState :: AppState
 initialState = AppState
@@ -161,21 +71,69 @@ defaultConfig = AppConfig
   , configInitialRating = 1500.0
   }
 
-displayRatings :: UserId -> App ()
-displayRatings userId = do
-  ratings <- getUserRatings userId
-  MonadState.liftIO $ putStrLn $ "Ratings for user " ++ show userId ++ ":"
-  Monad.forM_ ratings $ \(option, rating) ->
-    MonadState.liftIO $ putStrLn $ "  " ++ show (optionName option) ++ ": " ++ show rating
+createOption :: OptionId -> BS.ByteString -> Option
+createOption oid name = Option oid name
 
-data Comparison = Comparison
-  { compUser :: UserId
-  , compOption1 :: Option
-  , compOption2 :: Option
-  , compResult :: MatchResult
-  , compTimestamp :: Int
-  } deriving (Show, Eq)
+createUser :: BS.ByteString -> UserId
+createUser uid = UserId uid
 
+addOption :: Option -> App ()
+addOption option = MonadState.modify $ \s -> s { stateOptions = Set.insert option (stateOptions s) }
+
+addUser :: UserId -> App ()
+addUser userId = MonadState.modify $ \s -> s { stateUsers = Set.insert userId (stateUsers s) }
+
+getRating :: UserId -> Option -> App Double
+getRating uid option = do
+  ratings <- MonadState.gets stateRatings
+  initialRating <- MonadReader.asks configInitialRating
+  pure $ Map.findWithDefault initialRating (uid, optionId option) ratings
+
+getUserRatings :: UserId -> App [(Option, Double)]
+getUserRatings userId = do
+  options <- MonadState.gets stateOptions
+  ratings <- MonadState.gets stateRatings
+  initialRating <- MonadReader.asks configInitialRating
+
+  let userRatings = flip map (Set.toList options) $ \option ->
+        let rating = Map.findWithDefault initialRating (userId, optionId option) ratings
+        in (option, rating)
+
+  pure $ sortByRating userRatings
+  where
+    sortByRating = List.sortBy (\(_, r1) (_, r2) -> compare r2 r1)
+
+updateRating :: UserId -> Option -> Option -> MatchResult -> App ()
+updateRating userId option opponent result = do
+  kFactor <- MonadReader.asks configKFactor
+  optionRating <- getRating userId option
+  opponentRating <- getRating userId opponent
+
+  let expected = calculateExpectedScore optionRating opponentRating
+      actual = resultToScore result
+      newRating = optionRating + kFactor * (actual - expected)
+
+  MonadState.modify $ \s -> s
+    { stateRatings = Map.insert
+        (userId, optionId option) newRating (stateRatings s)
+    }
+
+updateRatings :: UserId -> Option -> Option -> MatchResult -> App ()
+updateRatings userId option1 option2 result = do
+  updateRating userId option1 option2 result
+  updateRating userId option2 option1 (flipResult result)
+
+calculateExpectedScore :: Double -> Double -> Double
+calculateExpectedScore aRating bRating =
+  1.0 / (1.0 + 10.0 ** ((bRating - aRating) / 400.0))
+
+resultToScore :: MatchResult -> Double
+resultToScore Win  = 1.0
+resultToScore Loss = 0.0
+
+flipResult :: MatchResult -> MatchResult
+flipResult Win  = Loss
+flipResult Loss = Win
 
 getAllOptionPairs :: [Option] -> [(Option, Option)]
 getAllOptionPairs options = do
@@ -186,15 +144,11 @@ getAllOptionPairs options = do
 
 hasBeenCompared :: UserId -> Option -> Option -> [Comparison] -> Bool
 hasBeenCompared userId opt1 opt2 comparisons =
-  any (\comp -> compUser comp == userId &&
-               ((compOption1 comp == opt1 && compOption2 comp == opt2) ||
-                (compOption1 comp == opt2 && compOption2 comp == opt1)))
-      comparisons
+  any (\comp -> compUser comp == userId && ((compOption1 comp == opt1 && compOption2 comp == opt2) || (compOption1 comp == opt2 && compOption2 comp == opt1))) comparisons
 
 getUncomparedPairs :: UserId -> [Option] -> [Comparison] -> [(Option, Option)]
 getUncomparedPairs userId options comparisons =
-  filter (\(opt1, opt2) -> not $ hasBeenCompared userId opt1 opt2 comparisons)
-         (getAllOptionPairs options)
+  filter (\(opt1, opt2) -> not $ hasBeenCompared userId opt1 opt2 comparisons) (getAllOptionPairs options)
 
 getNextComparisonPair :: UserId -> App (Maybe (Option, Option))
 getNextComparisonPair userId = do
@@ -270,6 +224,18 @@ getRandomPairForRefinement _ = do
       let option2 = options !! (if j >= i then j + 1 else j)
       pure $ Just (option1, option2)
 
+presentComparison :: UserId -> Option -> Option -> App MatchResult
+presentComparison userId option1 option2 = do
+  MonadState.liftIO $ putStrLn $ "User: " ++ show userId
+  MonadState.liftIO $ putStrLn "Choose between:"
+  MonadState.liftIO $ putStrLn $ "1. " ++ show (optionName option1)
+  MonadState.liftIO $ putStrLn $ "2. " ++ show (optionName option2)
+
+  choice <- MonadState.liftIO getLine
+  pure $ case choice of
+    "1" -> Win
+    _   -> Loss
+
 recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do
   timestamp <- MonadState.gets stateNextTimestamp
@@ -285,6 +251,21 @@ recordComparison userId opt1 opt2 result = do
     { stateComparisons = comparison : stateComparisons s
     , stateNextTimestamp = timestamp + 1
     }
+
+checkIfComplete :: UserId -> App Bool
+checkIfComplete userId = do
+  options <- MonadState.gets (Set.toList . stateOptions)
+  comparisons <- MonadState.gets stateComparisons
+
+  let userComps = filter (\c -> compUser c == userId) comparisons
+      totalPossiblePairs = length options * (length options - 1) `div` 2
+      completedPairs = length $ Set.fromList $ map
+        (\c -> (min (compOption1 c) (compOption2 c),
+                max (compOption1 c) (compOption2 c))) userComps
+
+      violations = findTransitivityViolations userId comparisons
+
+  pure $ completedPairs == totalPossiblePairs && null violations
 
 -- calculate ranking stability (0.0-1.0)
 -- higher means more stable (fewer transitivity violations)
@@ -302,6 +283,98 @@ calculateStability userId = do
 
   pure $ 1.0 - (fromIntegral (length violations) / fromIntegral totalPossible)
 
+runEvaluationSession :: UserId -> App ()
+runEvaluationSession userId = do
+  continueSession (1 :: Int)
+  where
+    continueSession comparisonNum = do
+      isComplete <- checkIfComplete userId
+      if isComplete
+        then MonadState.liftIO $ putStrLn
+          "Complete and consistent ranking achieved!"
+        else do
+          optionPair <- getNextComparisonPair userId
+          case optionPair of
+            Nothing -> MonadState.liftIO $
+              putStrLn "Not enough options to compare"
+            Just (option1, option2) -> do
+              prevRankings <- getPreviousRankings userId
+              prevRatingsMap <- getPreviousRatings userId
+
+              MonadState.liftIO $ putStrLn $
+                "Comparison " ++ show comparisonNum ++ ":"
+              result <- presentComparison userId option1 option2
+
+              recordComparison userId option1 option2 result
+
+              updateRatings userId option1 option2 result
+
+              displayRankings userId prevRankings prevRatingsMap
+              displaySessionStatus userId
+              MonadState.liftIO $ putStrLn ""
+
+              continueSession (comparisonNum + 1)
+
+getPreviousRatings :: UserId -> App (Map.Map OptionId Double)
+getPreviousRatings userId = do
+  ratings <- getUserRatings userId
+  let ratingsMap = Map.fromList $ map (\(opt, rating) -> (optionId opt, rating)) ratings
+  pure ratingsMap
+
+getPreviousRankings :: UserId -> App [(Option, Int)]
+getPreviousRankings userId = do
+  ratings <- getUserRatings userId
+  let withRanks = zip (map fst ratings) [1..]
+  pure withRanks
+
+displayRankings :: UserId -> [(Option, Int)] -> Map.Map OptionId Double -> App ()
+displayRankings userId prevRankings prevRatingsMap = do
+  currentRatings <- getUserRatings userId
+  initialRating <- MonadReader.asks configInitialRating
+
+  let prevRankMap = Map.fromList $
+        map (\(opt, rank) -> (optionId opt, rank)) prevRankings
+
+      currentWithRanks = zip (map fst currentRatings) [1..]
+
+      formatChange :: (Option, Int) -> String
+      formatChange (option, currentRank) = do
+        let oid = optionId option
+            prevRank = Map.findWithDefault currentRank oid prevRankMap
+
+            currentRating = case filter (\(opt, _) -> optionId opt == oid)
+                                  currentRatings of
+                (_, rating):_ -> rating
+                [] -> initialRating
+
+            prevRating = Map.findWithDefault initialRating oid prevRatingsMap
+
+            rankChange = prevRank - currentRank
+            ratingChange = currentRating - prevRating
+
+            rankChangeStr = case compare rankChange 0 of
+              EQ -> ""
+              GT -> " (↑" ++ show rankChange ++ ")"
+              LT -> " (↓" ++ show (abs rankChange) ++ ")"
+
+            ratingChangeStr = case compare ratingChange 0 of
+              EQ -> ""
+              GT -> " (+" ++ Printf.printf "%.2f" ratingChange ++ ")"
+              LT -> " (-" ++ Printf.printf "%.2f" (abs ratingChange) ++ ")"
+
+        "  " ++ show currentRank ++ ". " ++ show (optionName option) ++ ": " ++ Printf.printf "%.2f" currentRating ++ ratingChangeStr ++ rankChangeStr
+
+  MonadState.liftIO $ do
+    putStrLn $ "Updated ratings for user " ++ show userId ++ ":"
+    mapM_ (putStrLn . formatChange) currentWithRanks
+
+displayRatings :: UserId -> App ()
+displayRatings userId = do
+  ratings <- getUserRatings userId
+  MonadState.liftIO $ putStrLn $ "Ratings for user " ++ show userId ++ ":"
+  Monad.forM_ ratings $ \(option, rating) ->
+    MonadState.liftIO $ putStrLn $ "  " ++ show (optionName option) ++ ": " ++ show rating
+
 displaySessionStatus :: UserId -> App ()
 displaySessionStatus userId = do
   options <- MonadState.gets (Set.toList . stateOptions)
@@ -310,14 +383,12 @@ displaySessionStatus userId = do
   let userComps = filter (\c -> compUser c == userId) comparisons
       totalPossiblePairs = length options * (length options - 1) `div` 2
       completedPairs = length $ Set.fromList $ map
-        (\c -> (min (compOption1 c) (compOption2 c),
-                max (compOption1 c) (compOption2 c))) userComps
+        (\c -> (min (compOption1 c) (compOption2 c), max (compOption1 c) (compOption2 c))) userComps
 
   stability <- calculateStability userId
 
   MonadState.liftIO $ do
-    putStrLn $ "Completion: " ++ show completedPairs ++ "/"
-      ++ show totalPossiblePairs ++ " pairs compared"
+    putStrLn $ "Completion: " ++ show completedPairs ++ "/" ++ show totalPossiblePairs ++ " pairs compared"
     putStrLn $ "Stability: " ++ show (stability * 100) ++ "%"
 
     -- if we've compared all pairs, show if we have transitivity violations
@@ -344,11 +415,9 @@ main = MonadState.evalStateT (MonadReader.runReaderT app defaultConfig)
       Monad.forM_ options addOption
 
       let user = createUser "user"
-          -- we'll do more comparisons than strictly required to allow for transitivity checks
-          totalComparisons = length options * (length options - 1)
 
       addUser user
-      runEvaluationSession user totalComparisons
+      runEvaluationSession user
 
       MonadState.liftIO $ putStrLn "Final rankings:"
       displayRatings user
