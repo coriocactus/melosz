@@ -202,18 +202,41 @@ getNextComparisonPair :: UserId -> App (Maybe (Option, Option))
 getNextComparisonPair userId = do
   uncomparedSet <- MonadState.gets (Map.findWithDefault Set.empty userId . stateUncomparedPairs)
   violations <- getViolations userId
-  isDone <- checkIfComplete userId
+  optionsSet <- MonadState.gets stateOptions
 
   mUncompared <- selectRandomElement uncomparedSet
+  if Maybe.isJust mUncompared then
+    pure mUncompared
+  else do
+    if not (Set.null violations) then do
+      let violationPairs = findPairsInViolations violations
+      let allPairs = getAllOptionPairsSet optionsSet
+      let stableComparedPairs = allPairs Set.\\ violationPairs
 
-  if Maybe.isJust mUncompared then pure mUncompared else do
-    let violationPairs = findPairsInViolations violations
-    mViolationPair <- selectRandomElement violationPairs
+      pickViolation <- MonadState.liftIO $ Random.randomRIO (0.0, 1.0) 
+      let violationFocusProbability = 0.7 :: Double
+      let primaryPool   = if pickViolation < violationFocusProbability then violationPairs else stableComparedPairs
+      let secondaryPool = if pickViolation < violationFocusProbability then stableComparedPairs else violationPairs
 
-    if Maybe.isJust mViolationPair then pure mViolationPair else do
-      if isDone
-         then pure Nothing
-         else getRandomPairForRefinement userId
+      mPrimary <- selectRandomElement primaryPool
+      case mPrimary of
+        Just pair -> pure $ Just pair
+        Nothing   -> selectRandomElement secondaryPool
+    else do
+      sortedRatings <- getUserRatings userId
+      let topN = 5
+      let topOptionsList = take topN $ map fst sortedRatings
+
+      if length topOptionsList < 2 then
+        getRandomPairForRefinement userId
+      else do
+        let topOptionsSet = Set.fromList topOptionsList
+        let topPairsSet = getAllOptionPairsSet topOptionsSet
+        mTopPair <- selectRandomElement topPairsSet
+
+        case mTopPair of
+          Just pair -> pure $ Just pair
+          Nothing   -> getRandomPairForRefinement userId
 
 findPairsInViolations :: Set.Set (Option, Option, Option) -> Set.Set (Option, Option)
 findPairsInViolations violations =
@@ -252,8 +275,7 @@ selectRandomElement :: MonadState.MonadIO m => Set.Set a -> m (Maybe a)
 selectRandomElement s
   | Set.null s = pure Nothing
   | otherwise = do
-      let n = Set.size s
-      idx <- MonadState.liftIO $ Random.randomRIO (0, n - 1)
+      idx <- MonadState.liftIO $ Random.randomRIO (0, (Set.size s) - 1)
       pure $ Just (Set.elemAt idx s)
 
 getRandomPairForRefinement :: UserId -> App (Maybe (Option, Option))
@@ -278,8 +300,8 @@ recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do
   timestamp <- MonadState.gets stateNextTimestamp
 
-  let comparison = Comparison userId opt1 opt2 result timestamp
-  MonadState.liftIO $ putStrLn $ "Logged:" <> show comparison
+  -- let comparison = Comparison userId opt1 opt2 result timestamp
+  -- MonadState.liftIO $ putStrLn $ "Logged:" <> show comparison
 
   let (winner, loser) = case result of
         Win -> (opt1, opt2)
@@ -292,7 +314,7 @@ recordComparison userId opt1 opt2 result = do
 
   Monad.when reversePrefExisted $
     MonadState.liftIO $ putStrLn $
-      "** Preference Reversal: " ++ show loser ++ " > " ++ show winner ++ " with " ++ show winner ++ " > " ++ show loser
+      "Reversal: " ++ show (optionName loser) ++ " > " ++ show (optionName winner) ++ " with " ++ show (optionName winner) ++ " > " ++ show (optionName loser)
 
   currentUserPrefs <- MonadState.gets (Map.findWithDefault Set.empty userId . statePreferences)
   currentUserUncompared <- MonadState.gets (Map.findWithDefault Set.empty userId . stateUncomparedPairs)
@@ -320,8 +342,7 @@ canonicalizeViolation (a, c, b)
     idC = optionId c
 
 referencesEdge :: Option -> Option -> (Option, Option, Option) -> Bool
-referencesEdge u v (a, c, b) =
-    (a == u && b == v) || (b == u && c == v) || (c == u && a == v)
+referencesEdge u v (a, c, b) = (a == u && b == v) || (b == u && c == v) || (c == u && a == v)
 
 updateViolationsOnNewPreference :: UserId -> (Option, Option) -> Maybe (Option, Option) -> App ()
 updateViolationsOnNewPreference userId (winner, loser) mRemovedPref = do
