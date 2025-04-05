@@ -52,4 +52,4 @@ test-suite core
   other-modules:
     TestArbs, TestUtils,
     TypesSpec,
-    RatingSpec
+    RatingSpec, PreferenceSpec
