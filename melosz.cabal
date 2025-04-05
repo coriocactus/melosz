@@ -36,16 +36,18 @@ library
 
 executable console
   import: common-options, common-warnings
+  ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
+  build-depends: melosz
   hs-source-dirs: app
   main-is: ConsoleMain.hs
-  build-depends: melosz
-  ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
 
 test-suite core
   import: common-options, common-warnings
   type: exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is: Spec.hs
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends: melosz, hspec, QuickCheck
   build-tool-depends: hspec-discover:hspec-discover
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  hs-source-dirs: test
+  main-is: Spec.hs
+  other-modules:
+    TestArbs, TestUtils, TypesSpec
