@@ -166,24 +166,24 @@ spec = describe "Preference" $ do
     it "returns 1.0 for fewer than 3 options" $ do
       let state2opts = setupState testUser1 Set.empty Set.empty Set.empty (Set.fromList [optA, optB])
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing (Just state2opts)
-      score `shouldBeCloseTo` 1.0
+      score `shouldBeApprox` 1.0
 
     it "returns 1.0 for 3 options with no violations" $ do
       let state3opts = setupState testUser1 prefsAB_BC Set.empty Set.empty (Set.fromList [optA, optB, optC])
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing (Just state3opts)
-      score `shouldBeCloseTo` 1.0
+      score `shouldBeApprox` 1.0
 
     it "returns 0.0 for 3 options with 1 violation (the only possible triple)" $ do
       let state3optsViol = setupState testUser1 prefsABCycle (Set.singleton cycleViolationABC) Set.empty (Set.fromList [optA, optB, optC])
           -- n=3, total triples = 3*2*1 / 6 = 1. Score = 1 - 1/1 = 0
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing (Just state3optsViol)
-      score `shouldBeCloseTo` 0.0
+      score `shouldBeApprox` 0.0
 
     it "calculates correctly for 4 options with 1 violation" $ do
       let state4optsViol = setupState testUser1 prefsABCycle (Set.singleton cycleViolationABC) Set.empty allTestOptionsSet
           -- n=4, total triples = 4*3*2 / 6 = 4. Score = 1 - 1/4 = 0.75
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing (Just state4optsViol)
-      score `shouldBeCloseTo` 0.75
+      score `shouldBeApprox` 0.75
 
     it "calculates correctly for 4 options with 2 violations" $ do
       let cycleViolationABD = canonicalizeViolation (optA, optD, optB) -- A>B, B>D, D>A (assuming these prefs exist)
@@ -192,7 +192,7 @@ spec = describe "Preference" $ do
           state4opts2Viol = setupState testUser1 prefsABCycle violations Set.empty allTestOptionsSet
           -- n=4, total triples = 4. Score = 1 - 2/4 = 0.5
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing (Just state4opts2Viol)
-      score `shouldBeCloseTo` 0.5
+      score `shouldBeApprox` 0.5
 
   describe "calculateAgreementScore" $ do
     let eloRankPerfect = [(optA, 1700.0), (optB, 1600.0), (optC, 1500.0)]
@@ -201,7 +201,7 @@ spec = describe "Preference" $ do
     it "returns 1.0 (max agreement) when no preferences exist" $ do
       let state = setupState testUser1 Set.empty Set.empty Set.empty allTestOptionsSet
       score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just state)
-      score `shouldBeCloseTo` 1.0
+      score `shouldBeApprox` 1.0
 
     it "returns 1.0 (max agreement) when preferences perfectly match Elo order" $ do
       -- Prefs: A>B, A>C, B>C (total 3)
@@ -210,7 +210,7 @@ spec = describe "Preference" $ do
       let prefs = Set.fromList [(optA, optB), (optA, optC), (optB, optC)]
           state = setupState testUser1 prefs Set.empty Set.empty (Set.fromList [optA, optB, optC])
       score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just state)
-      score `shouldBeCloseTo` 1.0
+      score `shouldBeApprox` 1.0
 
     it "returns 0.0 (max disagreement) when preferences perfectly oppose Elo order" $ do
       -- Prefs: C>B, C>A, B>A (total 3)
@@ -219,7 +219,7 @@ spec = describe "Preference" $ do
       let prefs = Set.fromList [(optC, optB), (optC, optA), (optB, optA)]
           state = setupState testUser1 prefs Set.empty Set.empty (Set.fromList [optA, optB, optC])
       score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just state)
-      score `shouldBeCloseTo` 0.0
+      score `shouldBeApprox` 0.0
 
     it "returns 0.5 (no correlation) for mixed preferences" $ do
       -- Prefs: A>B, C>A (total 2)
@@ -230,7 +230,7 @@ spec = describe "Preference" $ do
       let prefs = Set.fromList [(optA, optB), (optC, optA)]
           state = setupState testUser1 prefs Set.empty Set.empty (Set.fromList [optA, optB, optC])
       score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just state)
-      score `shouldBeCloseTo` 0.5
+      score `shouldBeApprox` 0.5
 
     it "handles ties in Elo ratings (counts as neither concordant nor discordant)" $ do
       -- Prefs: A>C, B>C (total 2)
@@ -241,7 +241,7 @@ spec = describe "Preference" $ do
       let prefs = Set.fromList [(optA, optC), (optB, optC)]
           state = setupState testUser1 prefs Set.empty Set.empty (Set.fromList [optA, optB, optC])
       score <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultConfig) (Just state)
-      score `shouldBeCloseTo` 1.0
+      score `shouldBeApprox` 1.0
 
       -- Prefs: A>B (total 1)
       -- Elo (ties): A=1600, B=1600
@@ -250,7 +250,7 @@ spec = describe "Preference" $ do
       let prefsAB = Set.singleton (optA, optB)
           stateAB = setupState testUser1 prefsAB Set.empty Set.empty (Set.fromList [optA, optB, optC])
       scoreAB <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultConfig) (Just stateAB)
-      scoreAB `shouldBeCloseTo` 0.5
+      scoreAB `shouldBeApprox` 0.5
 
     it "uses initial rating for options not present in the Elo list" $ do
       -- Prefs: A>D (total 1)
@@ -260,7 +260,7 @@ spec = describe "Preference" $ do
       let prefsAD = Set.singleton (optA, optD)
           stateAD = setupState testUser1 prefsAD Set.empty Set.empty (Set.fromList [optA, optD])
       scoreAD <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just stateAD)
-      scoreAD `shouldBeCloseTo` 1.0
+      scoreAD `shouldBeApprox` 1.0
 
       -- Prefs: D>A (total 1)
       -- Elo (perfect): A=1700. D is not present, uses initial=1500.
@@ -269,4 +269,4 @@ spec = describe "Preference" $ do
       let prefsDA = Set.singleton (optD, optA)
           stateDA = setupState testUser1 prefsDA Set.empty Set.empty (Set.fromList [optA, optD])
       scoreDA <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultConfig) (Just stateDA)
-      scoreDA `shouldBeCloseTo` 0.0
+      scoreDA `shouldBeApprox` 0.0

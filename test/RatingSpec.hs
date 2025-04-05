@@ -37,11 +37,11 @@ spec = describe "Rating" $ do
       calculateExpectedScore 1400.0 1500.0 `shouldSatisfy` (< 0.5)
 
     it "returns approx 0.64 for 100 point difference" $
-      calculateExpectedScore 1600.0 1500.0 `shouldBeCloseTo` (1.0 / (1.0 + 10.0 ** ((-100.0) / 400.0)))
+      calculateExpectedScore 1600.0 1500.0 `shouldBeApprox` (1.0 / (1.0 + 10.0 ** ((-100.0) / 400.0)))
 
     it "sums to 1.0 when swapping ratings" $
       (calculateExpectedScore 1600.0 1500.0 + calculateExpectedScore 1500.0 1600.0)
-        `shouldBeCloseTo` 1.0
+        `shouldBeApprox` 1.0
 
   describe "getUserRating" $ do
     it "returns initial rating for unknown user/option" $ do

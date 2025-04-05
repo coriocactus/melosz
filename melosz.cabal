@@ -51,5 +51,5 @@ test-suite core
   main-is: Spec.hs
   other-modules:
     TestArbs, TestUtils,
-    TypesSpec,
-    RatingSpec, PreferenceSpec, MarshalSpec
+    TypesSpec, AppStateSpec,
+    RatingSpec, PreferenceSpec, SchedulerSpec, MarshalSpec, RankingSpec

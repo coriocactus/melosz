@@ -7,7 +7,7 @@ import qualified Control.Monad.State as MonadState
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 
-import Test.Hspec (Expectation, shouldSatisfy)
+import Test.Hspec (Expectation, expectationFailure)
 
 import Types
 import AppState
@@ -29,10 +29,19 @@ runAppTest action mConfig mState = do
       state = Maybe.fromMaybe initialState mState
   MonadState.runStateT (MonadReader.runReaderT action config) state
 
-shouldBeCloseTo :: Double -> Double -> Expectation
-shouldBeCloseTo actual expected =
-  shouldSatisfy actual (\x -> abs (x - expected) < epsilon)
-  where epsilon = 1e-6
+shouldBeApproxPrec :: (Fractional a, Ord a, Show a) => a -> a -> a -> Expectation
+shouldBeApproxPrec margin actual expected =
+  if abs (actual - expected) < abs margin * max 1 (abs expected)
+    then return ()
+    else expectationFailure message
+  where
+    message = concat [
+      "Test Failed\nexpected: ", show expected,
+      " within margin of ", show margin,
+      "\n but got: ", show actual]
+
+shouldBeApprox :: (Fractional a, Ord a, Show a) => a -> a -> Expectation
+shouldBeApprox = shouldBeApproxPrec 1e-6
 
 testUser1 :: UserId
 testUser1 = "user1"
@@ -40,15 +49,15 @@ testUser1 = "user1"
 testUser2 :: UserId
 testUser2 = "user2"
 
-optA, optB, optC, optD :: Option
+optA, optB, optC, optD, optE :: Option
 optA = createOption "A" "Option A"
 optB = createOption "B" "Option B"
 optC = createOption "C" "Option C"
 optD = createOption "D" "Option D"
+optE = createOption "E" "Option E"
 
 allTestOptions :: [Option]
 allTestOptions = [optA, optB, optC, optD]
 
 allTestOptionsSet :: Set.Set Option
 allTestOptionsSet = Set.fromList allTestOptions
-
