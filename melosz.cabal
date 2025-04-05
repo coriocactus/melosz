@@ -14,7 +14,7 @@ executable melosz
   other-modules:
     Types
     AppState
-    Rating Preference Scheduler Marshal
+    Rating Preference Scheduler Marshal Ranking
     Console
   build-depends:
     base ^>=4.20.0.0,
