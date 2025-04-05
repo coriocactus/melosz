@@ -16,11 +16,11 @@ import Rating
 import Preference
 import Scheduler
 
--- TODO: Add input validation and re-prompt
 presentComparison :: UserId -> Option -> Option -> App MatchResult
 presentComparison uid option1 option2 = do
   swapOrder <- MonadIO.liftIO Random.randomIO :: App Bool
-  let (dispOpt1, dispOpt2) = if swapOrder then (option2, option1) else (option1, option2)
+  let (dispOpt1, dispOpt2) =
+        if swapOrder then (option2, option1) else (option1, option2)
 
   MonadIO.liftIO $ do
     putStrLn $ "User: " ++ show uid
@@ -29,14 +29,21 @@ presentComparison uid option1 option2 = do
     Printf.printf "2. %s\n" (show $ optionName dispOpt2)
     putStr "Your choice (1 or 2): "
 
-  choice <- MonadIO.liftIO getLine
-
-  pure $ case (choice, swapOrder) of
-    ("1", False) -> Win
-    ("2", False) -> Loss
-    ("1", True)  -> Loss
-    ("2", True)  -> Win
-    (_,   _)     -> Loss
+  getValidChoice swapOrder dispOpt1 dispOpt2
+  where
+    getValidChoice :: Bool -> Option -> Option -> App MatchResult
+    getValidChoice swapOrder dispOpt1 dispOpt2 = do
+      choice <- MonadIO.liftIO getLine
+      case choice of
+        "1" -> pure $ if swapOrder then Loss else Win
+        "2" -> pure $ if swapOrder then Win else Loss
+        _   -> do
+          MonadIO.liftIO $ do
+            putStrLn "Invalid choice. Please enter 1 or 2."
+            Printf.printf "1. %s\n" (show $ optionName dispOpt1)
+            Printf.printf "2. %s\n" (show $ optionName dispOpt2)
+            putStr "Your choice (1 or 2): "
+          getValidChoice swapOrder dispOpt1 dispOpt2
 
 formatViolation :: (Option, Option, Option) -> String
 formatViolation (a, c, b) =

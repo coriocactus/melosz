@@ -6,29 +6,8 @@ license-file:   README.md
 author:         coriocactus
 build-type:     Simple
 
-executable melosz
-  hs-source-dirs:
-    app
-  main-is:
-    Main.hs
-  other-modules:
-    Types
-    AppState
-    Rating Preference Scheduler Marshal Ranking
-    Console
-  build-depends:
-    base ^>=4.20.0.0,
-    bytestring,
-    containers,
-    mtl,
-    random
-  default-language:
-    GHC2024
+common common-warnings
   ghc-options:
-    -O2
-    -rtsopts
-    -threaded
-    -with-rtsopts=-N
     -Wall
     -Wcompat
     -Widentities
@@ -37,3 +16,36 @@ executable melosz
     -Wincomplete-uni-patterns
     -Wmissing-home-modules
     -Wredundant-constraints
+
+common common-options
+  default-language: GHC2024
+  build-depends:
+    base ^>=4.20.0.0,
+    bytestring,
+    containers,
+    mtl,
+    random
+
+library
+  import: common-options, common-warnings
+  hs-source-dirs: src
+  exposed-modules:
+    Types AppState
+    Rating Preference Scheduler Marshal Ranking
+    Console
+
+executable console
+  import: common-options, common-warnings
+  hs-source-dirs: app
+  main-is: ConsoleMain.hs
+  build-depends: melosz
+  ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
+
+test-suite core
+  import: common-options, common-warnings
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is: Spec.hs
+  build-depends: melosz, hspec, QuickCheck
+  build-tool-depends: hspec-discover:hspec-discover
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
