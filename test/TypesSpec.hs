@@ -4,7 +4,7 @@ module TypesSpec where
 
 import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.QuickCheck (prop)
-import Test.QuickCheck
+import Test.QuickCheck ((===))
 
 import Types
 
@@ -37,4 +37,3 @@ spec = describe "Types" $ do
 
     prop "is its own inverse" $
       \(TestMatchResult res) -> flipResult (flipResult res) === res
-
