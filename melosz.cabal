@@ -50,4 +50,6 @@ test-suite core
   hs-source-dirs: test
   main-is: Spec.hs
   other-modules:
-    TestArbs, TestUtils, TypesSpec
+    TestArbs, TestUtils,
+    TypesSpec,
+    RatingSpec

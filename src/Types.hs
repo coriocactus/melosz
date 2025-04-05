@@ -46,7 +46,3 @@ makeCanonicalPair o1 o2
 flipResult :: MatchResult -> MatchResult
 flipResult Win  = Loss
 flipResult Loss = Win
-
-resultToScore :: MatchResult -> Double
-resultToScore Win  = 1.0
-resultToScore Loss = 0.0

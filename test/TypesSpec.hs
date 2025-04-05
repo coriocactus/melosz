@@ -6,9 +6,10 @@ import Test.Hspec (Spec, describe, it, shouldBe)
 import Test.Hspec.QuickCheck (prop)
 import Test.QuickCheck
 
+import Types
+
 import TestArbs
 import TestUtils (optA, optB)
-import Types
 
 spec :: Spec
 spec = describe "Types" $ do
@@ -37,9 +38,3 @@ spec = describe "Types" $ do
     prop "is its own inverse" $
       \(TestMatchResult res) -> flipResult (flipResult res) === res
 
-  describe "resultToScore" $ do
-    it "maps Win to 1.0" $
-      resultToScore Win `shouldBe` 1.0
-
-    it "maps Loss to 0.0" $
-      resultToScore Loss `shouldBe` 0.0

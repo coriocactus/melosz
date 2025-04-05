@@ -8,6 +8,7 @@ import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 
 import Test.Hspec (Expectation, shouldSatisfy)
+
 import Types
 import AppState
 

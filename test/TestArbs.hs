@@ -1,7 +1,8 @@
 module TestArbs where
 
-import Test.QuickCheck (Gen, Arbitrary(..), elements, arbitrary)
 import qualified Data.ByteString as BS
+
+import Test.QuickCheck (Gen, Arbitrary(..), elements, arbitrary)
 
 import Types
 
