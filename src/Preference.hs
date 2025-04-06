@@ -117,7 +117,6 @@ recordComparison userId opt1 opt2 result = do
   case mUserState of
     Nothing -> MonadIO.liftIO $ Printf.printf "Error: User %s not found when recording comparison.\n" (show userId)
     Just userState -> do
-      timestamp <- getNextTimestamp
 
       let (winner, loser) = case result of
             Win -> (opt1, opt2)
@@ -155,5 +154,25 @@ recordComparison userId opt1 opt2 result = do
 
       MonadState.modify $ \s ->
         s { stateUserStates = Map.insert userId updatedUserState (stateUserStates s)
-          , stateNextTimestamp = timestamp + 1
           }
+
+restoreUserState :: UserId -> Relation -> Map.Map OptionId Double -> App ()
+restoreUserState userId restoredPrefs restoredRatings = do
+  optionsSet <- getOptions
+  let allPossiblePairs = getAllOptionPairsSet optionsSet
+
+  let comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
+
+  let newUserUncomparedPairs = allPossiblePairs Set.\\ comparedCanonicalPairs
+
+  let newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
+
+  let newUserState = UserState
+        { userRatings = restoredRatings
+        , userPreferences = restoredPrefs
+        , userViolations = newUserViolations
+        , userUncomparedPairs = newUserUncomparedPairs
+        }
+
+  MonadState.modify $ \s ->
+    s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }

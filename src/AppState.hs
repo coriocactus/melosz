@@ -51,14 +51,12 @@ initialUserState options = UserState
 data AppState = AppState
   { stateOptions :: Set.Set Option
   , stateUserStates :: Map.Map UserId UserState
-  , stateNextTimestamp :: Int
   }
 
 initialState :: AppState
 initialState = AppState
   { stateOptions = Set.empty
   , stateUserStates = Map.empty
-  , stateNextTimestamp = 0
   }
 
 -- === State Accessors ===
@@ -69,13 +67,10 @@ getOptions = MonadState.gets stateOptions
 getUsers :: App (Set.Set UserId)
 getUsers = MonadState.gets (Map.keysSet . stateUserStates)
 
-getNextTimestamp :: App Int
-getNextTimestamp = MonadState.gets stateNextTimestamp
-
 getUserState :: UserId -> App (Maybe UserState)
 getUserState userId = MonadState.gets (Map.lookup userId . stateUserStates)
 
--- helper to get userstate, providing a default empty state
+-- helper to get UserState, providing a default empty state
 getUserState' :: UserId -> App UserState
 getUserState' userId = Maybe.fromMaybe (initialUserState Set.empty) <$> getUserState userId
 

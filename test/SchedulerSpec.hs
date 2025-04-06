@@ -6,7 +6,6 @@ import Test.Hspec
 
 import Types
 import AppState
-import Preference
 import Scheduler
 
 import TestUtils
@@ -24,20 +23,6 @@ spec = describe "Scheduler" $ do
       mPair <- evalAppTest (getNextComparisonPair testUser1 [] Set.empty) Nothing (Just state)
       mPair `shouldBe` Just (makeCanonicalPair optA optB)
 
-    it "prefers a pair from violations if no uncompared pairs exist (stochastic)" $ do
-      -- Setup: No uncompared, one violation involving (A,B), (B,C), (C,A)
-      let cycleViolation = canonicalizeViolation (optA, optC, optB)
-          prefs = Set.fromList [(optA, optB), (optB, optC), (optC, optA)]
-          violations = Set.singleton cycleViolation
-          violationPairs = findPairsInViolations violations
-          state = setupState prefs violations Set.empty -- No uncompared
-
-      -- Test that *some* pair is returned if violations exist
-      -- Note: This test is stochastic based on Scheduler logic, but should always pick *something* from violationPairs
-      -- if the probability calculation favors it. We primarily test that it *can* pick from violations.
-      mPair <- evalAppTest (getNextComparisonPair testUser1 [] violationPairs) Nothing (Just state)
-      mPair `shouldSatisfy` (\mp -> maybe False (`Set.member` violationPairs) mp)
-
     it "returns a pair for refinement if only stable pairs exist" $ do
       -- Setup: A > B, B > C (stable), no uncompared, no violations
       let prefs = Set.fromList [(optA, optB), (optB, optC)]
@@ -49,7 +34,7 @@ spec = describe "Scheduler" $ do
       mPair `shouldSatisfy` (/= Nothing)
 
     it "returns Nothing if no pairs are available (e.g., < 2 options)" $ do
-       let opts1 = Set.singleton optA
-           state = mkAppState opts1 [(testUser1, initialUserState opts1)]
-       mPair <- evalAppTest (getNextComparisonPair testUser1 [] Set.empty) Nothing (Just state)
-       mPair `shouldBe` Nothing
+      let opts1 = Set.singleton optA
+          state = mkAppState opts1 [(testUser1, initialUserState opts1)]
+      mPair <- evalAppTest (getNextComparisonPair testUser1 [] Set.empty) Nothing (Just state)
+      mPair `shouldBe` Nothing

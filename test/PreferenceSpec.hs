@@ -95,12 +95,6 @@ spec = describe "Preference" $ do
        Set.member (optB, optA) prefs `shouldBe` False
        Set.size prefs `shouldBe` 1
 
-    it "increments the timestamp" $ do
-      let opts = Set.fromList [optA, optB]
-          startState = (setupUser testUser1 opts (emptyUserState opts)) { stateNextTimestamp = 5 }
-      finalState <- execAppTest (recordComparison testUser1 optA optB Win) Nothing (Just startState)
-      stateNextTimestamp finalState `shouldBe` 6
-
     it "detects and records a new violation when a comparison completes a cycle" $ do
       let opts3 = Set.fromList [optA, optB, optC]
           startPrefs = Set.fromList [(optB, optC), (optC, optA)]

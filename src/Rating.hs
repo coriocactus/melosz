@@ -35,7 +35,7 @@ ratingsToMap ratings =
   Map.fromList $ map (\(opt, rating) -> (optionId opt, rating)) ratings
 
 ratingsToRankings :: [(Option, Double)] -> [(Option, Int)]
-ratingsToRankings ratings = zip (map fst ratings) [1..]
+ratingsToRankings sortedRatings = zip (map fst sortedRatings) [1..]
 
 updateRatings :: UserId -> Option -> Option -> MatchResult -> App ()
 updateRatings uid option1 option2 result = do
