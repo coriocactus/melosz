@@ -28,7 +28,10 @@ common common-options
 
 common web-deps
   build-depends:
+    blaze-html,
+    blaze-markup,
     http-types,
+    servant-blaze,
     servant-server,
     text,
     wai,

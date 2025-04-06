@@ -7,6 +7,5 @@ import Web
 main :: IO ()
 main = do
   let port = 8080
-  putStrLn $ "Starting server on http://localhost:" ++ show port ++ "/hello"
-  putStrLn $ "Starting server on http://localhost:" ++ show port ++ "/bye"
+  putStrLn $ "Server starting on port " ++ show port
   Warp.run port application
