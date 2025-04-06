@@ -7,10 +7,13 @@ import qualified Control.Monad.State as MonadState
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Control.Monad as Monad
+import qualified Data.Maybe as Maybe
 
 import Types
 
 type App = MonadReader.ReaderT AppConfig (MonadState.StateT AppState IO)
+
+-- === Configuration ===
 
 data AppConfig = AppConfig
   { configKFactor :: Double
@@ -26,47 +29,66 @@ defaultConfig = AppConfig
 getConfig :: App AppConfig
 getConfig = MonadReader.ask
 
-data AppState = AppState
-  { stateUsers :: Set.Set UserId
-  , stateOptions :: Set.Set Option
-  , stateRatings :: Map.Map (UserId, OptionId) Double
-  , statePreferences :: Map.Map UserId Relation
-  , stateNextTimestamp :: Int
-  , stateViolations :: Map.Map UserId (Set.Set (Option, Option, Option))
-  , stateUncomparedPairs :: Map.Map UserId (Set.Set (Option, Option))
+-- === User State ===
+
+data UserState = UserState
+  { userRatings :: Map.Map OptionId Double
+  , userPreferences :: Relation
+  , userViolations :: Set.Set (Option, Option, Option)
+  , userUncomparedPairs :: Set.Set (Option, Option)
+  } deriving (Show, Eq)
+
+initialUserState :: Set.Set Option -> UserState
+initialUserState options = UserState
+  { userRatings = Map.empty
+  , userPreferences = Set.empty
+  , userViolations = Set.empty
+  , userUncomparedPairs = getAllOptionPairsSet options
   }
+
+-- === Global Application State ===
+
+data AppState = AppState
+  { stateOptions :: Set.Set Option
+  , stateUserStates :: Map.Map UserId UserState
+  , stateNextTimestamp :: Int
+  }
+
+initialState :: AppState
+initialState = AppState
+  { stateOptions = Set.empty
+  , stateUserStates = Map.empty
+  , stateNextTimestamp = 0
+  }
+
+-- === State Accessors ===
 
 getOptions :: App (Set.Set Option)
 getOptions = MonadState.gets stateOptions
 
-initialState :: AppState
-initialState = AppState
-  { stateUsers = Set.empty
-  , stateOptions = Set.empty
-  , stateRatings = Map.empty
-  , statePreferences = Map.empty
-  , stateNextTimestamp = 0
-  , stateViolations = Map.empty
-  , stateUncomparedPairs = Map.empty
-  }
-
 getUsers :: App (Set.Set UserId)
-getUsers = MonadState.gets stateUsers
-
-getPreferencesForUser :: UserId -> App Relation
-getPreferencesForUser userId = MonadState.gets (Map.findWithDefault Set.empty userId . statePreferences)
-
-getUncomparedPairsForUser :: UserId -> App (Set.Set (Option, Option))
-getUncomparedPairsForUser userId = MonadState.gets (Map.findWithDefault Set.empty userId . stateUncomparedPairs)
-
-getViolationsForUser :: UserId -> App (Set.Set (Option, Option, Option))
-getViolationsForUser userId = MonadState.gets (Map.findWithDefault Set.empty userId . stateViolations)
-
-getRatingsMap :: App (Map.Map (UserId, OptionId) Double)
-getRatingsMap = MonadState.gets stateRatings
+getUsers = MonadState.gets (Map.keysSet . stateUserStates)
 
 getNextTimestamp :: App Int
 getNextTimestamp = MonadState.gets stateNextTimestamp
+
+getUserState :: UserId -> App (Maybe UserState)
+getUserState userId = MonadState.gets (Map.lookup userId . stateUserStates)
+
+-- helper to get userstate, providing a default empty state
+getUserState' :: UserId -> App UserState
+getUserState' userId = Maybe.fromMaybe (initialUserState Set.empty) <$> getUserState userId
+
+getPreferencesForUser :: UserId -> App Relation
+getPreferencesForUser userId = userPreferences <$> getUserState' userId
+
+getUncomparedPairsForUser :: UserId -> App (Set.Set (Option, Option))
+getUncomparedPairsForUser userId = userUncomparedPairs <$> getUserState' userId
+
+getViolationsForUser :: UserId -> App (Set.Set (Option, Option, Option))
+getViolationsForUser userId = userViolations <$> getUserState' userId
+
+-- === Utility ===
 
 getAllOptionPairsSet :: Set.Set Option -> Set.Set (Option, Option)
 getAllOptionPairsSet options = Set.fromList $ do

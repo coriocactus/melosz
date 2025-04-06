@@ -6,6 +6,7 @@ import qualified Control.Monad.Reader as MonadReader
 import qualified Control.Monad.State as MonadState
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 
 import Test.Hspec (Expectation, expectationFailure)
 
@@ -61,3 +62,22 @@ allTestOptions = [optA, optB, optC, optD]
 
 allTestOptionsSet :: Set.Set Option
 allTestOptionsSet = Set.fromList allTestOptions
+
+mkAppState :: Set.Set Option -> [(UserId, UserState)] -> AppState
+mkAppState options userStatesList = initialState
+  { stateOptions = options
+  , stateUserStates = Map.fromList userStatesList
+  }
+
+mkUserState :: Map.Map OptionId Double -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
+mkUserState ratings prefs violations uncompared = UserState
+  { userRatings = ratings
+  , userPreferences = prefs
+  , userViolations = violations
+  , userUncomparedPairs = uncompared
+  }
+
+setupStateSingleUser :: UserId -> Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> AppState
+setupStateSingleUser userId options prefs violations uncompared =
+  let uState = mkUserState Map.empty prefs violations uncompared
+  in mkAppState options [(userId, uState)]

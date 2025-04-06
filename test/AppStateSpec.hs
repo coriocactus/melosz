@@ -3,6 +3,7 @@
 module AppStateSpec where
 
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 
 import Test.Hspec
 
@@ -37,3 +38,24 @@ spec = describe "AppState" $ do
           n = 4
           expectedCount = n * (n - 1) `div` 2
       Set.size (getAllOptionPairsSet options) `shouldBe` expectedCount
+
+  describe "initialUserState" $ do
+    it "initializes with empty ratings, prefs, violations" $ do
+      let uState = initialUserState allTestOptionsSet
+      userRatings uState `shouldBe` Map.empty
+      userPreferences uState `shouldBe` Set.empty
+      userViolations uState `shouldBe` Set.empty
+
+    it "initializes uncompared pairs based on options" $ do
+      let uState = initialUserState allTestOptionsSet
+          expectedPairs = getAllOptionPairsSet allTestOptionsSet
+      userUncomparedPairs uState `shouldBe` expectedPairs
+
+  describe "getUsers" $ do
+    it "returns empty set initially" $ do
+      users <- evalAppTest getUsers Nothing (Just initialState)
+      users `shouldBe` Set.empty
+    it "returns set of users present in stateUserStates" $ do
+      let state = initialState { stateUserStates = Map.fromList [(testUser1, initialUserState Set.empty), (testUser2, initialUserState Set.empty)] }
+      users <- evalAppTest getUsers Nothing (Just state)
+      users `shouldBe` Set.fromList [testUser1, testUser2]

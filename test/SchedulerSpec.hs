@@ -1,7 +1,6 @@
 module SchedulerSpec where
 
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 
 import Test.Hspec
 
@@ -14,19 +13,14 @@ import TestUtils
 
 spec :: Spec
 spec = describe "Scheduler" $ do
-  let setupState user prefs violations uncompared options = initialState
-        { stateUsers = Set.singleton user
-        , stateOptions = options
-        , statePreferences = Map.singleton user prefs
-        , stateViolations = Map.singleton user violations
-        , stateUncomparedPairs = Map.singleton user uncompared
-        }
+
+  let setupState = setupStateSingleUser testUser1 allTestOptionsSet
 
   describe "getNextComparisonPair" $ do
 
     it "prefers an uncompared pair if available" $ do
       let uncompared = Set.singleton (makeCanonicalPair optA optB)
-          state = setupState testUser1 Set.empty Set.empty uncompared (Set.fromList [optA, optB])
+          state = setupState Set.empty Set.empty uncompared
       mPair <- evalAppTest (getNextComparisonPair testUser1 [] Set.empty) Nothing (Just state)
       mPair `shouldBe` Just (makeCanonicalPair optA optB)
 
@@ -36,18 +30,26 @@ spec = describe "Scheduler" $ do
           prefs = Set.fromList [(optA, optB), (optB, optC), (optC, optA)]
           violations = Set.singleton cycleViolation
           violationPairs = findPairsInViolations violations
-          state = setupState testUser1 prefs violations Set.empty (Set.fromList [optA, optB, optC])
+          state = setupState prefs violations Set.empty -- No uncompared
 
       -- Test that *some* pair is returned if violations exist
+      -- Note: This test is stochastic based on Scheduler logic, but should always pick *something* from violationPairs
+      -- if the probability calculation favors it. We primarily test that it *can* pick from violations.
       mPair <- evalAppTest (getNextComparisonPair testUser1 [] violationPairs) Nothing (Just state)
       mPair `shouldSatisfy` (\mp -> maybe False (`Set.member` violationPairs) mp)
 
     it "returns a pair for refinement if only stable pairs exist" $ do
       -- Setup: A > B, B > C (stable), no uncompared, no violations
       let prefs = Set.fromList [(optA, optB), (optB, optC)]
-          state = setupState testUser1 prefs Set.empty Set.empty (Set.fromList [optA, optB, optC])
-          ratings = [(optA, 1600), (optB, 1500), (optC, 1400)] -- Provide some ratings
+          state = setupState prefs Set.empty Set.empty
+          ratings = [(optA, 1600), (optB, 1500), (optC, 1400)]
 
-      -- Expectation: Returns *some* pair (maybe (A,B) or (B,C) or (A,C) depending on refinement strategy)
+      -- Expectation: Returns *some* pair
       mPair <- evalAppTest (getNextComparisonPair testUser1 ratings Set.empty) Nothing (Just state)
       mPair `shouldSatisfy` (/= Nothing)
+
+    it "returns Nothing if no pairs are available (e.g., < 2 options)" $ do
+       let opts1 = Set.singleton optA
+           state = mkAppState opts1 [(testUser1, initialUserState opts1)]
+       mPair <- evalAppTest (getNextComparisonPair testUser1 [] Set.empty) Nothing (Just state)
+       mPair `shouldBe` Nothing

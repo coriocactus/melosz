@@ -26,54 +26,56 @@ spec = describe "Marshal" $ do
       finalState <- execAppTest (setupOption optA) Nothing (Just intermediateState)
       Set.size (stateOptions finalState) `shouldBe` 1
 
-    it "adds new comparison pairs for existing users" $ do
-      -- Setup: User exists, optA exists
-      let startState = initialState
-            { stateUsers = Set.singleton testUser1
-            , stateOptions = Set.singleton optA
-            , stateUncomparedPairs = Map.singleton testUser1 Set.empty -- No pairs initially
-            }
+    it "adds new comparison pairs to existing users' UserState" $ do
+      -- Setup: User exists with optA already processed
+      let initialPairs = getAllOptionPairsSet (Set.singleton optA) -- Should be empty
+          startUserState = (initialUserState Set.empty) { userUncomparedPairs = initialPairs }
+          startState = mkAppState (Set.singleton optA) [(testUser1, startUserState)]
+
       -- Action: Add optB
       finalState <- execAppTest (setupOption optB) Nothing (Just startState)
-      let uncompared = stateUncomparedPairs finalState Map.! testUser1
+
+      -- Expectations:
+      -- 1. Option B is in global options
+      Set.member optB (stateOptions finalState) `shouldBe` True
+      -- 2. User1's uncompared pairs now contain (A, B)
+      let finalUserState = stateUserStates finalState Map.! testUser1
+          uncompared = userUncomparedPairs finalUserState
           expectedPair = makeCanonicalPair optA optB
-      -- Expectation: Pair (A, B) is now in uncompared
       Set.member expectedPair uncompared `shouldBe` True
-      Set.size uncompared `shouldBe` 1
+      Set.size uncompared `shouldBe` 1 -- Only the new pair
 
     it "does not add pairs if no users exist" $ do
       -- Setup: optA exists, no users
-      let startState = initialState { stateOptions = Set.singleton optA }
+      let startState = mkAppState (Set.singleton optA) []
       -- Action: Add optB
       finalState <- execAppTest (setupOption optB) Nothing (Just startState)
-      -- Expectation: stateUncomparedPairs is still empty
-      Map.null (stateUncomparedPairs finalState) `shouldBe` True
+      -- Expectation: stateUserStates is still empty
+      Map.null (stateUserStates finalState) `shouldBe` True
 
   describe "setupUser" $ do
-    it "adds a new user to stateUsers" $ do
+    it "adds a new user to stateUserStates" $ do
       finalState <- execAppTest (setupUser testUser1) Nothing (Just initialState)
-      Set.member testUser1 (stateUsers finalState) `shouldBe` True
+      Map.member testUser1 (stateUserStates finalState) `shouldBe` True
 
-    it "initializes preferences, violations for the new user" $ do
-      finalState <- execAppTest (setupUser testUser1) Nothing (Just initialState)
-      Map.lookup testUser1 (statePreferences finalState) `shouldBe` Just Set.empty
-      Map.lookup testUser1 (stateViolations finalState) `shouldBe` Just Set.empty
-
-    it "initializes uncompared pairs based on existing options" $ do
-      let startState = initialState { stateOptions = Set.fromList [optA, optB] }
+    it "initializes UserState correctly based on existing options" $ do
+      let startState = mkAppState (Set.fromList [optA, optB]) []
           expectedPairs = getAllOptionPairsSet (stateOptions startState)
+
       finalState <- execAppTest (setupUser testUser1) Nothing (Just startState)
-      Map.lookup testUser1 (stateUncomparedPairs finalState) `shouldBe` Just expectedPairs
+      let userState = stateUserStates finalState Map.! testUser1
+
+      userRatings userState `shouldBe` Map.empty
+      userPreferences userState `shouldBe` Set.empty
+      userViolations userState `shouldBe` Set.empty
+      userUncomparedPairs userState `shouldBe` expectedPairs
 
     it "is idempotent" $ do
       intermediateState <- execAppTest (setupUser testUser1) Nothing (Just initialState)
       finalState <- execAppTest (setupUser testUser1) Nothing (Just intermediateState)
 
-      statePreferences finalState `shouldBe` statePreferences intermediateState
-      stateViolations finalState `shouldBe` stateViolations intermediateState
-      stateUncomparedPairs finalState `shouldBe` stateUncomparedPairs intermediateState
-
-      Set.size (stateUsers finalState) `shouldBe` 1
+      stateUserStates finalState `shouldBe` stateUserStates intermediateState
+      Map.size (stateUserStates finalState) `shouldBe` 1
 
   describe "setupOptions" $ do
     it "adds multiple options" $ do
@@ -83,4 +85,4 @@ spec = describe "Marshal" $ do
   describe "setupUsers" $ do
     it "adds multiple users" $ do
       finalState <- execAppTest (setupUsers [testUser1, testUser2]) Nothing (Just initialState)
-      Set.size (stateUsers finalState) `shouldBe` 2
+      Map.size (stateUserStates finalState) `shouldBe` 2

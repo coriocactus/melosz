@@ -13,26 +13,22 @@ setupOption newOption = do
   alreadyExists <- MonadState.gets (Set.member newOption . stateOptions)
   Monad.unless alreadyExists $ do
     MonadState.modify $ \s -> s { stateOptions = Set.insert newOption (stateOptions s) }
-    existingOptions <- MonadState.gets stateOptions -- Get options *after* adding new one
-    userIds <- getUsers
-    let pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions) -- Pairs involving the new option
+
+    existingOptions <- MonadState.gets stateOptions
+    let pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions)
 
     MonadState.modify $ \s ->
-      let updateUncompared u currentMap =
-            Map.insertWith Set.union u pairsToAdd currentMap
-      in s { stateUncomparedPairs = Set.foldr updateUncompared (stateUncomparedPairs s) userIds }
+      let updateUserState _ us = us { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us) }
+      in s { stateUserStates = Map.mapWithKey updateUserState (stateUserStates s) }
 
 setupUser :: UserId -> App ()
 setupUser userId = do
-  alreadyExists <- MonadState.gets (Set.member userId . stateUsers)
-  Monad.unless alreadyExists $ do
+  userExists <- MonadState.gets (Map.member userId . stateUserStates)
+  Monad.unless userExists $ do
     optionsSet <- getOptions
-    let initialUncompared = getAllOptionPairsSet optionsSet
+    let newUserState = initialUserState optionsSet
     MonadState.modify $ \s -> s
-      { stateUsers = Set.insert userId (stateUsers s)
-      , statePreferences = Map.insert userId Set.empty (statePreferences s)
-      , stateViolations = Map.insert userId Set.empty (stateViolations s)
-      , stateUncomparedPairs = Map.insert userId initialUncompared (stateUncomparedPairs s)
+      { stateUserStates = Map.insert userId newUserState (stateUserStates s)
       }
 
 setupOptions :: [Option] -> App ()

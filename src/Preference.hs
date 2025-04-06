@@ -28,28 +28,25 @@ canonicalizeViolation (a, c, b)
     idB = optionId b
     idC = optionId c
 
-referencesEdge :: Option -> Option -> (Option, Option, Option) -> Bool
-referencesEdge u v (a, c, b) =
-    (a == u && b == v) || (b == u && c == v) || (c == u && a == v)
-
 checkIfComplete :: UserId -> App Bool
 checkIfComplete userId = do
-  uncomparedSet <- getUncomparedPairsForUser userId
-  violationsSet <- getViolationsForUser userId
-  pure $ Set.null uncomparedSet && Set.null violationsSet
+  mUserState <- getUserState userId
+  case mUserState of
+    Nothing -> pure True
+    Just us -> pure $ Set.null (userUncomparedPairs us) && Set.null (userViolations us)
 
 calculateTransitivityScore :: UserId -> App Double
 calculateTransitivityScore userId = do
-  options <- MonadState.gets (Set.toList . stateOptions)
-  violationsSet <- getViolationsForUser userId
+  optionsCount <- Set.size <$> getOptions
+  violationsCount <- Set.size <$> getViolationsForUser userId
 
-  pure $ transitivityScore (length options) (Set.size violationsSet)
+  pure $ transitivityScore optionsCount violationsCount
   where
     transitivityScore :: Int -> Int -> Double
-    transitivityScore n violationsCount
+    transitivityScore n violationsCnt
       | n < 3 = 1.0
-      | violationsCount == 0 = 1.0
-      | otherwise = 1.0 - (fromIntegral violationsCount / totalPossibleTriples n)
+      | violationsCnt == 0 = 1.0
+      | otherwise = 1.0 - (fromIntegral violationsCnt / totalPossibleTriples n)
 
     totalPossibleTriples :: Int -> Double
     totalPossibleTriples n
@@ -96,65 +93,67 @@ findPairsInViolations violations =
           p3 = makeCanonicalPair c a
       in Set.insert p1 (Set.insert p2 (Set.insert p3 acc))
 
-updateViolationsOnNewPreference :: UserId -> (Option, Option) -> Maybe (Option, Option) -> App ()
-updateViolationsOnNewPreference userId (winner, loser) mRemovedPref = do
-  prefsMap <- MonadState.gets statePreferences
-  optionsSet <- getOptions
-  let userPrefs = Map.findWithDefault Set.empty userId prefsMap
+findCurrentViolations :: Set.Set Option -> Relation -> Set.Set (Option, Option, Option)
+findCurrentViolations optionsSet prefs = Set.fromList $ do
+  a <- Set.toList optionsSet
+  b <- Set.toList optionsSet
+  Monad.guard (optionId a < optionId b)
+  c <- Set.toList optionsSet
+  Monad.guard (optionId b < optionId c)
 
-  currentViolations <- getViolationsForUser userId
+  let cycle1 = isPreferred a b prefs && isPreferred b c prefs && isPreferred c a prefs
+  let cycle2 = isPreferred a c prefs && isPreferred c b prefs && isPreferred b a prefs
 
-  let (violationsAfterRemoval, removedCount) = case mRemovedPref of
-        Nothing -> (currentViolations, 0)
-        Just (rLoser, rWinner) ->
-          let (removedCycles, remainingCycles) = Set.partition (referencesEdge rLoser rWinner) currentViolations
-          in (remainingCycles, Set.size removedCycles)
+  Monad.guard (cycle1 || cycle2)
+  pure $ canonicalizeViolation (a, c, b)
 
-  let newViolations = Set.fromList $ do
-        x <- Set.toList optionsSet
-        Monad.guard (x /= winner && x /= loser)
-        Monad.guard (isPreferred loser x userPrefs && isPreferred x winner userPrefs)
-        pure $ canonicalizeViolation (winner, x, loser)
-
-  let finalViolations = Set.union violationsAfterRemoval newViolations
-      addedCount = Set.size newViolations
-
-  MonadState.modify $ \s -> s { stateViolations = Map.insert userId finalViolations (stateViolations s) }
-
-  Monad.unless (addedCount == 0 && removedCount == 0) $
-    MonadIO.liftIO $ Printf.printf "Violations update for %s: +%d, -%d. Total: %d\n" (show userId) addedCount removedCount (Set.size finalViolations)
+calculateUpdatedViolations :: Set.Set Option -> Relation -> Set.Set (Option, Option, Option)
+calculateUpdatedViolations optionsSet currentPrefs =
+  findCurrentViolations optionsSet currentPrefs
 
 recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do
-  timestamp <- getNextTimestamp
+  mUserState <- getUserState userId
+  case mUserState of
+    Nothing -> MonadIO.liftIO $ Printf.printf "Error: User %s not found when recording comparison.\n" (show userId)
+    Just userState -> do
+      timestamp <- getNextTimestamp
 
-  -- let comparison = Comparison userId opt1 opt2 result timestamp
-  -- MonadState.liftIO $ putStrLn $ "Logged:" <> show comparison
+      let (winner, loser) = case result of
+            Win -> (opt1, opt2)
+            Loss -> (opt2, opt1)
+          newPref = (winner, loser)
+          reversePref = (loser, winner)
+          canonicalPair = makeCanonicalPair opt1 opt2
 
-  let (winner, loser) = case result of
-        Win -> (opt1, opt2)
-        Loss -> (opt2, opt1)
-      newPref = (winner, loser)
-      reversePref = (loser, winner)
-      canonicalPair = makeCanonicalPair opt1 opt2
+      let previousPrefs = userPreferences userState
+          reversePrefExisted = Set.member reversePref previousPrefs
 
-  currentUserPrefs <- getPreferencesForUser userId
-  let reversePrefExisted = Set.member reversePref currentUserPrefs
+      Monad.when reversePrefExisted $
+        MonadIO.liftIO $ putStrLn $
+          "Reversal detected for user " ++ show userId ++ ": Previously preferred " ++ show (optionName loser) ++ " over " ++ show (optionName winner) ++ ", now reversed."
 
-  Monad.when reversePrefExisted $
-    MonadIO.liftIO $ putStrLn $
-      "Reversal detected for user " ++ show userId ++ ": Previously preferred " ++ show (optionName loser) ++ " over " ++ show (optionName winner) ++ ", now reversed."
+      let userPrefsWithoutReverse = Set.delete reversePref previousPrefs
+          newUserPrefs = Set.insert newPref userPrefsWithoutReverse
 
-  let userPrefsWithoutReverse = Set.delete reversePref currentUserPrefs
-      newUserPrefs = Set.insert newPref userPrefsWithoutReverse
+      let newUserUncompared = Set.delete canonicalPair (userUncomparedPairs userState)
 
-  currentUserUncompared <- getUncomparedPairsForUser userId
-  let newUserUncompared = Set.delete canonicalPair currentUserUncompared
+      optionsSet <- getOptions
+      let oldViolationCount = Set.size $ userViolations userState
+          newUserViolations = calculateUpdatedViolations optionsSet newUserPrefs
+          newViolationCount = Set.size newUserViolations
 
-  MonadState.modify $ \s ->
-    s { statePreferences = Map.insert userId newUserPrefs (statePreferences s)
-      , stateUncomparedPairs = Map.insert userId newUserUncompared (stateUncomparedPairs s)
-      , stateNextTimestamp = timestamp + 1 -- Increment timestamp for the next event
-      }
+      Monad.when (newViolationCount /= oldViolationCount) $
+        MonadIO.liftIO $ Printf.printf "Violations update for %s: %d -> %d. Total: %d\n" (show userId) oldViolationCount newViolationCount newViolationCount
 
-  updateViolationsOnNewPreference userId newPref (if reversePrefExisted then Just reversePref else Nothing)
+      let updatedUserState = userState
+            { userPreferences = newUserPrefs
+            , userUncomparedPairs = newUserUncompared
+            , userViolations = newUserViolations
+            , userRatings = userRatings userState
+            }
+
+      MonadState.modify $ \s ->
+        s { stateUserStates = Map.insert userId updatedUserState (stateUserStates s)
+          , stateNextTimestamp = timestamp + 1
+          }
