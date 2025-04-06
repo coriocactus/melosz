@@ -5,7 +5,6 @@ import qualified Control.Monad.Reader as MonadReader
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.IORef as IORef
 import qualified Text.Printf as Printf
 
 import Types
@@ -110,14 +109,6 @@ findCurrentViolations optionsSet prefs = Set.fromList $ do
 calculateUpdatedViolations :: Set.Set Option -> Relation -> Set.Set (Option, Option, Option)
 calculateUpdatedViolations optionsSet currentPrefs =
   findCurrentViolations optionsSet currentPrefs
-
-modifyStateRef :: (AppState -> (AppState, a)) -> App a
-modifyStateRef f = do
-  stateRef <- MonadReader.asks configStateRef
-  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef f
-
-modifyStateRef_ :: (AppState -> AppState) -> App ()
-modifyStateRef_ f = modifyStateRef (\s -> (f s, ()))
 
 recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do

@@ -114,7 +114,7 @@ runApp cfg appAction = MonadIO.liftIO $ MonadReader.runReaderT appAction cfg
 -- | SERVANT: HOME
 
 type HomeAPI =
-  Servant.Get '[ServantBlaze.HTML] H.Html
+  Get '[ServantBlaze.HTML] H.Html
 
 homeServant :: AppConfig -> Servant.Server HomeAPI
 homeServant _cfg = handleHome
@@ -122,8 +122,9 @@ homeServant _cfg = handleHome
     handleHome :: Servant.Handler H.Html
     handleHome = do
       MonadIO.liftIO $ putStrLn "Serving /"
-      let userUrl = Servant.safeLink translator (Servant.Proxy :: Servant.Proxy CompareAPI) (Text.pack "coriocactus")
       throwRedirect userUrl
+      where 
+        userUrl = Servant.safeLink translator (Servant.Proxy :: Servant.Proxy CompareAPI) (Text.pack "coriocactus")
 
 throwRedirect :: Servant.Link -> Servant.Handler a
 throwRedirect link =
@@ -135,7 +136,7 @@ throwRedirect link =
 -- | SERVANT: COMPARE
 
 type CompareAPI =
-  "compare" :> Servant.Capture "userid" Text.Text :> Servant.Get '[ServantBlaze.HTML] H.Html
+  "compare" :> Servant.Capture "userid" Text.Text :> Get '[ServantBlaze.HTML] H.Html
 
 compareServant :: AppConfig -> Servant.Server CompareAPI
 compareServant cfg = handleCompare
@@ -196,7 +197,7 @@ gatherStatusData uid ratings violationsSet = do
 -- | SERVANT: CHOOSE
 
 type ChooseAPI =
-  "choose" :> Servant.Capture "userid" Text.Text :> Servant.Capture "option1id" Text.Text :> Servant.Capture "option2id" Text.Text :> Servant.Capture "choice" Text.Text :> Servant.Get '[ServantBlaze.HTML] H.Html
+  "choose" :> Servant.Capture "userid" Text.Text :> Servant.Capture "option1id" Text.Text :> Servant.Capture "option2id" Text.Text :> Servant.Capture "choice" Text.Text :> Get '[ServantBlaze.HTML] H.Html
 
 chooseServant :: AppConfig -> Servant.Server ChooseAPI
 chooseServant cfg = handleChoose
@@ -265,19 +266,19 @@ pageHead title more = H.head $ do
 
 styleSheet :: H.Html
 styleSheet = H.toHtml (Text.unlines
-    [ "body { font-family: sans-serif; margin: 2em; }"
-    , ".container { max-width: 800px; margin: auto; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }"
-    , ".comparison-box { border: 1px solid #eee; padding: 1em; margin-bottom: 1em; display: flex; justify-content: space-around; align-items: center; }"
-    , ".option-button { padding: 1em 2em; text-decoration: none; background-color: #eee; border: 1px solid #ccc; border-radius: 4px; color: black; }"
-    , ".option-button:hover { background-color: #ddd; }"
-    , ".results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2em; margin-top: 2em; }"
-    , "table { border-collapse: collapse; width: 100%; }"
-    , "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
-    , "th { background-color: #f2f2f2; }"
-    , ".status-section, .rankings-section { border: 1px solid #eee; padding: 1em; }"
-    , ".violation-list li { color: red; margin-bottom: 0.5em; }"
-    , ".completion-message { color: green; font-weight: bold; text-align: center; padding: 2em; }"
-    ])
+  [ "body { font-family: sans-serif; margin: 2em; }"
+  , ".container { max-width: 800px; margin: auto; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }"
+  , ".comparison-box { border: 1px solid #eee; padding: 1em; margin-bottom: 1em; display: flex; justify-content: space-around; align-items: center; }"
+  , ".option-button { padding: 1em 2em; text-decoration: none; background-color: #eee; border: 1px solid #ccc; border-radius: 4px; color: black; }"
+  , ".option-button:hover { background-color: #ddd; }"
+  , ".results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2em; margin-top: 2em; }"
+  , "table { border-collapse: collapse; width: 100%; }"
+  , "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
+  , "th { background-color: #f2f2f2; }"
+  , ".status-section, .rankings-section { border: 1px solid #eee; padding: 1em; }"
+  , ".violation-list li { color: red; margin-bottom: 0.5em; }"
+  , ".completion-message { color: green; font-weight: bold; text-align: center; padding: 2em; }"
+  ])
 
 mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> ComparisonStatus -> H.Html
 mkComparePage userId mPair rankings status =
@@ -342,8 +343,7 @@ mkStatusSection status = do
   if null (statusViolations status)
     then H.p "No transitivity violations."
     else do
-      let violationsStr = Printf.printf "Detected %d transitivity violation(s):"
-                         (length $ statusViolations status) :: String
+      let violationsStr = Printf.printf "Detected %d transitivity violation(s):" (length $ statusViolations status) :: String
       H.p $ H.toHtml violationsStr
       H.ul H.! A.class_ "violation-list" $ do
         mapM_ (H.li . H.toHtml . formatViolationHtml) (statusViolations status)
@@ -356,10 +356,10 @@ mkErrorPage errorMsg = pageLayout "Error" $ do
 
 formatViolationHtml :: (Option, Option, Option) -> String
 formatViolationHtml (a, c, b) =
-    Printf.printf "%s > %s, %s > %s, but %s > %s"
-      (BSC.unpack $ optionName a) (BSC.unpack $ optionName b)
-      (BSC.unpack $ optionName b) (BSC.unpack $ optionName c)
-      (BSC.unpack $ optionName c) (BSC.unpack $ optionName a)
+  Printf.printf "%s > %s, %s > %s, but %s > %s"
+    (BSC.unpack $ optionName a) (BSC.unpack $ optionName b)
+    (BSC.unpack $ optionName b) (BSC.unpack $ optionName c)
+    (BSC.unpack $ optionName c) (BSC.unpack $ optionName a)
 
 unUserId :: UserId -> BSC.ByteString
 unUserId (UserId bs) = bs

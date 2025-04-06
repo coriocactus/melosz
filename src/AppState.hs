@@ -94,3 +94,12 @@ getAllOptionPairsSet options = Set.fromList $ do
   o2 <- Set.toList options
   Monad.guard (optionId o1 < optionId o2)
   pure (o1, o2)
+
+modifyStateRef :: (AppState -> (AppState, a)) -> App a
+modifyStateRef f = do
+  stateRef <- MonadReader.asks configStateRef
+  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef f
+
+modifyStateRef_ :: (AppState -> AppState) -> App ()
+modifyStateRef_ f = modifyStateRef (\s -> (f s, ()))
+

@@ -1,11 +1,8 @@
 module Rating where
 
-import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.Ord as Ord
-import qualified Data.IORef as IORef
 
 import Types
 import AppState
@@ -37,11 +34,6 @@ ratingsToMap ratings =
 
 ratingsToRankings :: [(Option, Double)] -> [(Option, Int)]
 ratingsToRankings sortedRatings = zip (map fst sortedRatings) [1..]
-
-modifyStateRef_ :: (AppState -> AppState) -> App ()
-modifyStateRef_ f = do
-    stateRef <- MonadReader.asks configStateRef
-    MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef (\s -> (f s, ()))
 
 updateRatings :: UserId -> Option -> Option -> MatchResult -> App ()
 updateRatings uid option1 option2 result = do

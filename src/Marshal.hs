@@ -10,11 +10,6 @@ import qualified Data.IORef as IORef
 import Types
 import AppState
 
-modifyState' :: (AppState -> AppState) -> App ()
-modifyState' f = do
-  stateRef <- MonadReader.asks configStateRef
-  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef (\s -> (f s, ()))
-
 readState :: App AppState
 readState = do
   stateRef <- MonadReader.asks configStateRef
@@ -28,7 +23,7 @@ setupOption newOption = do
     let existingOptions = stateOptions currentState
         pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions)
 
-    modifyState' $ \s ->
+    modifyStateRef_ $ \s ->
       let updatedOptions = Set.insert newOption (stateOptions s)
           updateUserState _ us = us { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us) }
           updatedUserStates = Map.mapWithKey updateUserState (stateUserStates s)
@@ -41,7 +36,7 @@ setupUser userId = do
   Monad.unless userExists $ do
     optionsSet <- getOptions
     let newUserState = initialUserState optionsSet
-    modifyState' $ \s -> s
+    modifyStateRef_ $ \s -> s
       { stateUserStates = Map.insert userId newUserState (stateUserStates s)
       }
 
