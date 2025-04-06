@@ -4,7 +4,6 @@ module Console where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
-import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified System.Random as Random
@@ -112,13 +111,9 @@ displaySessionStatus uid = do
 
     Monad.unless (Set.null violationsSet) $ do
         Printf.printf "Detected %d transitivity violation(s).\n" violationsCount
-        let displayLimit = 5
-            violationsToDisplay = List.take displayLimit (Set.toList violationsSet)
-            formattedViolations = map formatViolation violationsToDisplay
-        MonadIO.liftIO $ putStrLn "Example violations (showing inconsistent cycle):"
+        let formattedViolations = map formatViolation (Set.toList violationsSet)
+        MonadIO.liftIO $ putStrLn "Violations (showing inconsistent cycle):"
         mapM_ (\(i, v) -> Printf.printf "  %d. %s\n" i v) (zip [1 :: Int ..] formattedViolations)
-        Monad.when (violationsCount > displayLimit) $
-          Printf.printf "  (and %d more violations not shown)\n" (violationsCount - displayLimit)
 
     Monad.when (Set.null uncomparedSet && Set.null violationsSet) $ do
       putStrLn "All pairs compared and preference set is internally consistent."
