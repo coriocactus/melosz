@@ -3,32 +3,54 @@
 module TestUtils where
 
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.State as MonadState
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
+import qualified Data.IORef as IORef
 
 import Test.Hspec (Expectation, expectationFailure)
 
 import Types
 import AppState
 
--- | Run an App computation with a specific config and initial state, returning the result.
-evalAppTest :: App a -> Maybe AppConfig -> Maybe AppState -> IO a
-evalAppTest action mConfig mState =
-  fst <$> runAppTest action mConfig mState
+data AppConfigData = AppConfigData
+  { configDataKFactor :: Double
+  , configDataInitialRating :: Double
+  }
 
--- | Run an App computation with a specific config and initial state, returning the final state.
-execAppTest :: App a -> Maybe AppConfig -> Maybe AppState -> IO AppState
-execAppTest action mConfig mState =
-  snd <$> runAppTest action mConfig mState
+defaultConfigData :: AppConfigData
+defaultConfigData = AppConfigData
+  { configDataKFactor = 32.0
+  , configDataInitialRating = 1500.0
+  }
 
--- | Run an App computation with a specific config and initial state, returning both result and final state.
-runAppTest :: App a -> Maybe AppConfig -> Maybe AppState -> IO (a, AppState)
-runAppTest action mConfig mState = do
-  let config = Maybe.fromMaybe defaultConfig mConfig
-      state = Maybe.fromMaybe initialState mState
-  MonadState.runStateT (MonadReader.runReaderT action config) state
+evalAppTest :: App a -> Maybe AppConfigData -> AppState -> IO a
+evalAppTest action mConfigData initState =
+  fst <$> runAppTest action mConfigData initState
+
+execAppTest :: App a -> Maybe AppConfigData -> AppState -> IO AppState
+execAppTest action mConfigData initState = do
+  ref <- IORef.newIORef initState
+  (_, finalRef) <- runAppTestRef action mConfigData ref
+  IORef.readIORef finalRef
+
+runAppTest :: App a -> Maybe AppConfigData -> AppState -> IO (a, AppState)
+runAppTest action mConfigData initState = do
+   ref <- IORef.newIORef initState
+   (result, finalRef) <- runAppTestRef action mConfigData ref
+   finalState <- IORef.readIORef finalRef
+   pure (result, finalState)
+
+runAppTestRef :: App a -> Maybe AppConfigData -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
+runAppTestRef action mConfigData stateRef = do
+  let configData = Maybe.fromMaybe defaultConfigData mConfigData
+      config = AppConfig
+        { configKFactor = configDataKFactor configData
+        , configInitialRating = configDataInitialRating configData
+        , configStateRef = stateRef
+        }
+  result <- MonadReader.runReaderT action config
+  pure (result, stateRef)
 
 shouldBeApproxPrec :: (Fractional a, Ord a, Show a) => a -> a -> a -> Expectation
 shouldBeApproxPrec margin actual expected =

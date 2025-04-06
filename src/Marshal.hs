@@ -1,33 +1,47 @@
 module Marshal where
 
 import qualified Control.Monad as Monad
-import qualified Control.Monad.State as MonadState
+import qualified Control.Monad.Reader as MonadReader
+import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.IORef as IORef
 
 import Types
 import AppState
 
+modifyState' :: (AppState -> AppState) -> App ()
+modifyState' f = do
+  stateRef <- MonadReader.asks configStateRef
+  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef (\s -> (f s, ()))
+
+readState :: App AppState
+readState = do
+  stateRef <- MonadReader.asks configStateRef
+  MonadIO.liftIO $ IORef.readIORef stateRef
+
 setupOption :: Option -> App ()
 setupOption newOption = do
-  alreadyExists <- MonadState.gets (Set.member newOption . stateOptions)
+  currentState <- readState
+  let alreadyExists = Set.member newOption (stateOptions currentState)
   Monad.unless alreadyExists $ do
-    MonadState.modify $ \s -> s { stateOptions = Set.insert newOption (stateOptions s) }
+    let existingOptions = stateOptions currentState
+        pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions)
 
-    existingOptions <- MonadState.gets stateOptions
-    let pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions)
-
-    MonadState.modify $ \s ->
-      let updateUserState _ us = us { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us) }
-      in s { stateUserStates = Map.mapWithKey updateUserState (stateUserStates s) }
+    modifyState' $ \s ->
+      let updatedOptions = Set.insert newOption (stateOptions s)
+          updateUserState _ us = us { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us) }
+          updatedUserStates = Map.mapWithKey updateUserState (stateUserStates s)
+      in s { stateOptions = updatedOptions, stateUserStates = updatedUserStates }
 
 setupUser :: UserId -> App ()
 setupUser userId = do
-  userExists <- MonadState.gets (Map.member userId . stateUserStates)
+  currentState <- readState
+  let userExists = Map.member userId (stateUserStates currentState)
   Monad.unless userExists $ do
     optionsSet <- getOptions
     let newUserState = initialUserState optionsSet
-    MonadState.modify $ \s -> s
+    modifyState' $ \s -> s
       { stateUserStates = Map.insert userId newUserState (stateUserStates s)
       }
 

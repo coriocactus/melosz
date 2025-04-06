@@ -3,27 +3,25 @@
 module AppState where
 
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.State as MonadState
+import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Control.Monad as Monad
 import qualified Data.Maybe as Maybe
+import qualified Data.IORef as IORef
 
 import Types
 
-type App = MonadReader.ReaderT AppConfig (MonadState.StateT AppState IO)
+-- === Application Monad ===
+
+type App = MonadReader.ReaderT AppConfig IO
 
 -- === Configuration ===
 
 data AppConfig = AppConfig
   { configKFactor :: Double
   , configInitialRating :: Double
-  }
-
-defaultConfig :: AppConfig
-defaultConfig = AppConfig
-  { configKFactor = 32.0
-  , configInitialRating = 1500.0
+  , configStateRef :: IORef.IORef AppState
   }
 
 getConfig :: App AppConfig
@@ -51,7 +49,7 @@ initialUserState options = UserState
 data AppState = AppState
   { stateOptions :: Set.Set Option
   , stateUserStates :: Map.Map UserId UserState
-  }
+  } deriving (Show, Eq)
 
 initialState :: AppState
 initialState = AppState
@@ -61,14 +59,19 @@ initialState = AppState
 
 -- === State Accessors ===
 
+readCurrentState :: App AppState
+readCurrentState = do
+  ref <- MonadReader.asks configStateRef
+  MonadIO.liftIO $ IORef.readIORef ref
+
 getOptions :: App (Set.Set Option)
-getOptions = MonadState.gets stateOptions
+getOptions = stateOptions <$> readCurrentState
 
 getUsers :: App (Set.Set UserId)
-getUsers = MonadState.gets (Map.keysSet . stateUserStates)
+getUsers = Map.keysSet . stateUserStates <$> readCurrentState
 
 getUserState :: UserId -> App (Maybe UserState)
-getUserState userId = MonadState.gets (Map.lookup userId . stateUserStates)
+getUserState userId = Map.lookup userId . stateUserStates <$> readCurrentState
 
 -- helper to get UserState, providing a default empty state
 getUserState' :: UserId -> App UserState

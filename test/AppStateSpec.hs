@@ -53,9 +53,9 @@ spec = describe "AppState" $ do
 
   describe "getUsers" $ do
     it "returns empty set initially" $ do
-      users <- evalAppTest getUsers Nothing (Just initialState)
+      users <- evalAppTest getUsers Nothing initialState
       users `shouldBe` Set.empty
     it "returns set of users present in stateUserStates" $ do
       let state = initialState { stateUserStates = Map.fromList [(testUser1, initialUserState Set.empty), (testUser2, initialUserState Set.empty)] }
-      users <- evalAppTest getUsers Nothing (Just state)
+      users <- evalAppTest getUsers Nothing state
       users `shouldBe` Set.fromList [testUser1, testUser2]

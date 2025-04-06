@@ -41,7 +41,7 @@ ratingsToRankMap sortedRatings =
 -- | Returns the sample variance, or 0.0 if fewer than 2 users provided a rank
 calculateItemRankVariance :: OptionId -> Set.Set UserId -> UserRankMaps -> Double
 calculateItemRankVariance itemId userIds userRankMaps = variance ranks
-  where 
+  where
     ranks :: [Double]
     ranks = Maybe.mapMaybe getRankForUser (Set.toList userIds)
 
@@ -56,7 +56,7 @@ calculateCumulativeSetAtDepth d userRankMaps =
   where
     mergeTopItems :: Set.Set OptionId -> RankMap -> Set.Set OptionId
     mergeTopItems currentSet rankMap = Set.union currentSet (topItems rankMap)
-    
+
     topItems :: RankMap -> Set.Set OptionId
     topItems rankMap = Map.keysSet $ Map.filter (<= d) rankMap
 

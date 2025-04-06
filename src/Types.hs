@@ -18,7 +18,6 @@ data Option = Option
   , optionName :: BS.ByteString
   } deriving (Show, Eq, Ord)
 
--- Represents win/loss preference: (Winner, Loser)
 type Relation = Set.Set (Option, Option)
 
 data MatchResult = Win | Loss

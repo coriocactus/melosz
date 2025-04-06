@@ -2,10 +2,10 @@ module Preference where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.State as MonadState
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.IORef as IORef
 import qualified Text.Printf as Printf
 
 import Types
@@ -111,68 +111,75 @@ calculateUpdatedViolations :: Set.Set Option -> Relation -> Set.Set (Option, Opt
 calculateUpdatedViolations optionsSet currentPrefs =
   findCurrentViolations optionsSet currentPrefs
 
+modifyStateRef :: (AppState -> (AppState, a)) -> App a
+modifyStateRef f = do
+  stateRef <- MonadReader.asks configStateRef
+  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef f
+
+modifyStateRef_ :: (AppState -> AppState) -> App ()
+modifyStateRef_ f = modifyStateRef (\s -> (f s, ()))
+
 recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do
-  mUserState <- getUserState userId
-  case mUserState of
-    Nothing -> MonadIO.liftIO $ Printf.printf "Error: User %s not found when recording comparison.\n" (show userId)
-    Just userState -> do
+  optionsSet <- getOptions
 
-      let (winner, loser) = case result of
-            Win -> (opt1, opt2)
-            Loss -> (opt2, opt1)
+  modifyStateRef_ $ \s ->
+    case Map.lookup userId (stateUserStates s) of
+      Nothing -> s
+      Just userState ->
+        let
+          (winner, loser) = case result of
+                Win -> (opt1, opt2)
+                Loss -> (opt2, opt1)
           newPref = (winner, loser)
           reversePref = (loser, winner)
           canonicalPair = makeCanonicalPair opt1 opt2
 
-      let previousPrefs = userPreferences userState
-          reversePrefExisted = Set.member reversePref previousPrefs
+          previousPrefs = userPreferences userState
 
-      Monad.when reversePrefExisted $
-        MonadIO.liftIO $ putStrLn $
-          "Reversal detected for user " ++ show userId ++ ": Previously preferred " ++ show (optionName loser) ++ " over " ++ show (optionName winner) ++ ", now reversed."
-
-      let userPrefsWithoutReverse = Set.delete reversePref previousPrefs
+          userPrefsWithoutReverse = Set.delete reversePref previousPrefs
           newUserPrefs = Set.insert newPref userPrefsWithoutReverse
 
-      let newUserUncompared = Set.delete canonicalPair (userUncomparedPairs userState)
+          newUserUncompared = Set.delete canonicalPair (userUncomparedPairs userState)
 
-      optionsSet <- getOptions
-      let oldViolationCount = Set.size $ userViolations userState
           newUserViolations = calculateUpdatedViolations optionsSet newUserPrefs
-          newViolationCount = Set.size newUserViolations
 
-      Monad.when (newViolationCount /= oldViolationCount) $
-        MonadIO.liftIO $ Printf.printf "Violations update for %s: %d -> %d. Total: %d\n" (show userId) oldViolationCount newViolationCount newViolationCount
+          updatedUserState = userState
+                { userPreferences = newUserPrefs
+                , userUncomparedPairs = newUserUncompared
+                , userViolations = newUserViolations
+                }
 
-      let updatedUserState = userState
-            { userPreferences = newUserPrefs
-            , userUncomparedPairs = newUserUncompared
-            , userViolations = newUserViolations
-            , userRatings = userRatings userState
-            }
+          updatedUserStates = Map.insert userId updatedUserState (stateUserStates s)
+        in s { stateUserStates = updatedUserStates }
 
-      MonadState.modify $ \s ->
-        s { stateUserStates = Map.insert userId updatedUserState (stateUserStates s)
-          }
+  currentState <- readCurrentState
+  case Map.lookup userId (stateUserStates currentState) of
+    Nothing -> pure ()
+    Just uState -> do
+      let (winner, loser) = case result of { Win -> (opt1, opt2); Loss -> (opt2, opt1) }
+      let reversePref = (loser, winner)
+      Monad.when (not (Set.member reversePref (userPreferences uState)) && Set.member (winner, loser) (userPreferences uState)) $
+        MonadIO.liftIO $ Monad.when (isPreferred loser winner (userPreferences uState)) $
+          putStrLn $ "Info: Preference potentially reversed for user " ++ show userId ++ ": " ++ show (optionName winner) ++ " now preferred over " ++ show (optionName loser)
+
+      let newViolationCount = Set.size $ userViolations uState
+      MonadIO.liftIO $ Printf.printf "Violations for %s: %d total.\n" (show userId) newViolationCount
 
 restoreUserState :: UserId -> Relation -> Map.Map OptionId Double -> App ()
 restoreUserState userId restoredPrefs restoredRatings = do
   optionsSet <- getOptions
   let allPossiblePairs = getAllOptionPairsSet optionsSet
+      comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
+      newUserUncomparedPairs = allPossiblePairs Set.\\ comparedCanonicalPairs
+      newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
 
-  let comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
+      newUserState = UserState
+            { userRatings = restoredRatings
+            , userPreferences = restoredPrefs
+            , userViolations = newUserViolations
+            , userUncomparedPairs = newUserUncomparedPairs
+            }
 
-  let newUserUncomparedPairs = allPossiblePairs Set.\\ comparedCanonicalPairs
-
-  let newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
-
-  let newUserState = UserState
-        { userRatings = restoredRatings
-        , userPreferences = restoredPrefs
-        , userViolations = newUserViolations
-        , userUncomparedPairs = newUserUncomparedPairs
-        }
-
-  MonadState.modify $ \s ->
-    s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }
+  modifyStateRef_ $ \s ->
+      s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }

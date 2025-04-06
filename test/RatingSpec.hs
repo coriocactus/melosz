@@ -15,11 +15,11 @@ import TestUtils
 
 spec :: Spec
 spec = describe "Rating" $ do
-  let testConfig = defaultConfig { configInitialRating = 1500.0, configKFactor = 32.0 }
-      k = configKFactor testConfig
-      initial = configInitialRating testConfig
+  let testConfigData = AppConfigData { configDataKFactor = 32.0, configDataInitialRating = 1500.0 }
+      k = configDataKFactor testConfigData
+      initial = configDataInitialRating testConfigData
       testOpts = Set.fromList [optA, optB, optC]
-      mkState ratingsMap = mkAppState testOpts [(testUser1, (initialUserState testOpts) { userRatings = ratingsMap })]
+      mkInitialState ratingsMap = mkAppState testOpts [(testUser1, (initialUserState testOpts) { userRatings = ratingsMap })]
 
   describe "resultToScore" $ do
     it "maps Win to 1.0" $
@@ -46,24 +46,24 @@ spec = describe "Rating" $ do
 
   describe "getUserRating" $ do
     it "returns initial rating for unknown user/option within user state" $ do
-      let state = mkState Map.empty
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) (Just state)
+      let state = mkInitialState Map.empty
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) state
       rating `shouldBe` initial
 
     it "returns initial rating if user does not exist" $ do
       -- testUser1 does not exist in initialState
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) (Just initialState)
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) initialState
       rating `shouldBe` initial
 
     it "returns specific rating when set in user state" $ do
-      let state = mkState (Map.singleton (optionId optA) 1550.0)
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) (Just state)
+      let state = mkInitialState (Map.singleton (optionId optA) 1550.0)
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) state
       rating `shouldBe` 1550.0
 
   describe "getUserRatings" $ do
      it "returns initial ratings sorted descending for multiple options" $ do
-      let state = mkState Map.empty
-      ratings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfig) (Just state)
+      let state = mkInitialState Map.empty
+      ratings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfigData) state
       map snd ratings `shouldBe` replicate 3 initial
       -- Order might not be guaranteed if ratings are equal, check content
       Set.fromList (map fst ratings) `shouldBe` Set.fromList [optA, optB, optC]
@@ -74,31 +74,31 @@ spec = describe "Rating" $ do
               , (optionId optB, 1500.0)
               , (optionId optC, 1650.0)
               ]
-           state = mkState ratingsMap
-       sortedRatings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfig) (Just state)
+           state = mkInitialState ratingsMap
+       sortedRatings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfigData) state
        map fst sortedRatings `shouldBe` [optC, optA, optB]
        map snd sortedRatings `shouldBe` [1650.0, 1600.0, 1500.0]
 
   describe "updateRatings" $ do
     it "updates both options in user state after a match (Win for optA)" $ do
-      let state = mkState Map.empty
+      let state = mkInitialState Map.empty
           expectedA = calculateExpectedScore initial initial -- 0.5
           expectedB = calculateExpectedScore initial initial -- 0.5
           newRatingA = initial + k * (1.0 - expectedA) -- 1516
           newRatingB = initial + k * (0.0 - expectedB) -- 1484
-      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfig) (Just state)
+      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigData) state
       let finalRatings = userRatings $ stateUserStates finalState Map.! testUser1
 
       Map.lookup (optionId optA) finalRatings `shouldBe` Just newRatingA
       Map.lookup (optionId optB) finalRatings `shouldBe` Just newRatingB
 
     it "updates both options after a match (Loss for optA)" $ do
-      let state = mkState Map.empty
+      let state = mkInitialState Map.empty
           expectedA = calculateExpectedScore initial initial -- 0.5
           expectedB = calculateExpectedScore initial initial -- 0.5
           newRatingA = initial + k * (0.0 - expectedA) -- 1484
           newRatingB = initial + k * (1.0 - expectedB) -- 1516
-      finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfig) (Just state)
+      finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfigData) state
       let finalRatings = userRatings $ stateUserStates finalState Map.! testUser1
 
       Map.lookup (optionId optA) finalRatings `shouldBe` Just newRatingA
@@ -106,7 +106,7 @@ spec = describe "Rating" $ do
 
     it "does not modify state if user does not exist" $ do
        let state = initialState -- No users
-       finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfig) (Just state)
+       finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigData) state
        stateUserStates finalState `shouldBe` Map.empty
 
   describe "ratingsToMap" $ do

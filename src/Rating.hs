@@ -1,10 +1,11 @@
 module Rating where
 
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.State as MonadState
+import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.Ord as Ord
+import qualified Data.IORef as IORef
 
 import Types
 import AppState
@@ -19,11 +20,11 @@ calculateExpectedScore aRating bRating =
 
 getUserRating :: UserId -> Option -> App Double
 getUserRating uid option = do
-  initialRating <- MonadReader.asks configInitialRating
+  config <- getConfig
   mUserState <- getUserState uid
   pure $ case mUserState of
-    Nothing -> initialRating
-    Just us -> Map.findWithDefault initialRating (optionId option) (userRatings us)
+    Nothing -> configInitialRating config
+    Just us -> Map.findWithDefault (configInitialRating config) (optionId option) (userRatings us)
 
 getUserRatings :: UserId -> [Option] -> App [(Option, Double)]
 getUserRatings uid options = do
@@ -37,33 +38,38 @@ ratingsToMap ratings =
 ratingsToRankings :: [(Option, Double)] -> [(Option, Int)]
 ratingsToRankings sortedRatings = zip (map fst sortedRatings) [1..]
 
+modifyStateRef_ :: (AppState -> AppState) -> App ()
+modifyStateRef_ f = do
+    stateRef <- MonadReader.asks configStateRef
+    MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef (\s -> (f s, ()))
+
 updateRatings :: UserId -> Option -> Option -> MatchResult -> App ()
 updateRatings uid option1 option2 result = do
-  mUserState <- getUserState uid
-  case mUserState of
-    Nothing -> pure ()
-    Just userState -> do
-      config <- getConfig
-      let kFactor = configKFactor config
-          initialRating = configInitialRating config
-          oid1 = optionId option1
-          oid2 = optionId option2
+  config <- getConfig
+  let kFactor = configKFactor config
+      initialRating = configInitialRating config
+      oid1 = optionId option1
+      oid2 = optionId option2
 
-      let rating1 = Map.findWithDefault initialRating oid1 (userRatings userState)
+  modifyStateRef_ $ \s ->
+    case Map.lookup uid (stateUserStates s) of
+      Nothing -> s
+      Just userState ->
+        let
+          rating1 = Map.findWithDefault initialRating oid1 (userRatings userState)
           rating2 = Map.findWithDefault initialRating oid2 (userRatings userState)
 
-      let expected1 = calculateExpectedScore rating1 rating2
-      let expected2 = calculateExpectedScore rating2 rating1
+          expected1 = calculateExpectedScore rating1 rating2
+          expected2 = calculateExpectedScore rating2 rating1
 
-      let (actual1, actual2) = case result of
-            Win  -> (1.0, 0.0)
-            Loss -> (0.0, 1.0)
+          (actual1, actual2) = case result of
+                Win  -> (1.0, 0.0)
+                Loss -> (0.0, 1.0)
 
-      let newRating1 = rating1 + kFactor * (actual1 - expected1)
-      let newRating2 = rating2 + kFactor * (actual2 - expected2)
+          newRating1 = rating1 + kFactor * (actual1 - expected1)
+          newRating2 = rating2 + kFactor * (actual2 - expected2)
 
-      let updatedRatings = Map.insert oid1 newRating1 $ Map.insert oid2 newRating2 (userRatings userState)
+          updatedRatings = Map.insert oid1 newRating1 $ Map.insert oid2 newRating2 (userRatings userState)
           updatedUserState = userState { userRatings = updatedRatings }
-
-      MonadState.modify $ \s ->
-        s { stateUserStates = Map.insert uid updatedUserState (stateUserStates s) }
+          updatedUserStates = Map.insert uid updatedUserState (stateUserStates s)
+        in s { stateUserStates = updatedUserStates }

@@ -3,7 +3,8 @@
 module Main where
 
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.State as MonadState
+import qualified Control.Monad.IO.Class as MonadIO
+import qualified Data.IORef as IORef
 
 import Types
 import AppState
@@ -11,8 +12,14 @@ import Marshal
 import Console
 
 runner :: App a -> IO a
-runner appToRun =
-  MonadState.evalStateT (MonadReader.runReaderT appToRun defaultConfig) initialState
+runner appToRun = do
+  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
+  let config = AppConfig
+        { configKFactor = 32.0
+        , configInitialRating = 1500.0
+        , configStateRef = initialStateRef
+        }
+  MonadReader.runReaderT appToRun config
 
 colourfulScaffold :: App ([Option], UserId)
 colourfulScaffold = do
