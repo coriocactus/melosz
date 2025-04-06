@@ -4,6 +4,8 @@ module Console where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
+import qualified Control.Monad.Reader as MonadReader
+import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified System.Random as Random
@@ -12,8 +14,107 @@ import qualified Text.Printf as Printf
 import Types
 import AppState
 import Rating
-import Preference
+import Marshal
 import Scheduler
+import Preference
+
+-- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
+-- | Console Runner
+
+runner :: App a -> IO a
+runner app = do
+  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
+  let config = AppConfig
+        { configKFactor = 32.0
+        , configInitialRating = 1500.0
+        , configStateRef = initialStateRef
+        }
+  MonadReader.runReaderT app config
+
+colourfulScaffold :: App ([Option], UserId)
+colourfulScaffold = do
+  let options =
+        [ createOption "red" "Red"
+        , createOption "orange" "Orange"
+        , createOption "yellow" "Yellow"
+        , createOption "green" "Green"
+        , createOption "blue" "Blue"
+        , createOption "violet" "Violet"
+        , createOption "indigo" "Indigo"
+        , createOption "cyan" "Cyan"
+        , createOption "magenta" "Magenta"
+        ]
+  let user = "coriocactus"
+
+  setupOptions options
+  setupUser user
+
+  pure (options, user)
+
+runConsole :: IO ()
+runConsole = do
+  let appToRun :: App ()
+      appToRun = colourfulScaffold >>=
+        (\(options, user) -> runInteractiveSession user options)
+  runner appToRun
+
+-- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
+
+runInteractiveSession :: UserId -> [Option] -> App ()
+runInteractiveSession user options = do
+  MonadIO.liftIO $ putStrLn "Starting ConsoleUI..."
+  runEvaluationSession user
+  reportFinalStatus user options
+
+runEvaluationSession :: UserId -> App ()
+runEvaluationSession uid = continueSession (1 :: Int)
+  where
+    continueSession comparisonNum = do
+      options <- getOptions
+      ratings <- getUserRatings uid $ Set.toList options
+      violations <- getViolationsForUser uid
+
+      let violationPairs = findPairsInViolations violations
+
+      maybePair <- getNextComparisonPair uid ratings violationPairs
+
+      case maybePair of
+        Nothing -> do
+          isTrulyComplete <- checkIfComplete uid
+          MonadIO.liftIO $ putStrLn ""
+          if isTrulyComplete
+            then MonadIO.liftIO $ putStrLn ">>> Ranking appears complete and consistent. <<<"
+            else MonadIO.liftIO $ putStrLn ">>> No more comparison pairs available based on current strategy (may indicate completion or need for different pair selection logic). <<<"
+
+        Just (option1, option2) -> do
+          let prevRankings = ratingsToRankings ratings
+          let prevRatingsMap = ratingsToMap ratings
+
+          MonadIO.liftIO $ Printf.printf "\n--- Comparison %d ---\n" comparisonNum
+          result <- presentComparison uid option1 option2
+
+          recordComparison uid option1 option2 result
+          updateRatings uid option1 option2 result
+
+          displayRankings uid prevRankings prevRatingsMap
+          displaySessionStatus uid
+
+          continueSession (comparisonNum + 1)
+
+reportFinalStatus :: UserId -> [Option] -> App ()
+reportFinalStatus user options = do
+  MonadIO.liftIO $ putStrLn "\n--- Final Results ---"
+  finalRankingsWithScores <- getUserRatings user options
+
+  MonadIO.liftIO $ putStrLn $ "Final ratings for user " ++ show user ++ ":"
+  Monad.forM_ (zip [1 :: Int ..] finalRankingsWithScores) $ \(rank, (option, rating)) ->
+      MonadIO.liftIO $ Printf.printf "  %d. %s: %.2f\n" rank (show $ optionName option) rating
+
+  displaySessionStatus user
+
+  MonadIO.liftIO $ putStrLn "\nEvaluation finished."
+
+-- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 
 presentComparison :: UserId -> Option -> Option -> App MatchResult
 presentComparison uid option1 option2 = do
@@ -117,57 +218,3 @@ displaySessionStatus uid = do
 
     Monad.when (Set.null uncomparedSet && Set.null violationsSet) $ do
       putStrLn "All pairs compared and preference set is internally consistent."
-
-runEvaluationSession :: UserId -> App ()
-runEvaluationSession uid = continueSession (1 :: Int)
-  where
-    continueSession comparisonNum = do
-      options <- getOptions
-      ratings <- getUserRatings uid $ Set.toList options
-      violations <- getViolationsForUser uid
-
-      let violationPairs = findPairsInViolations violations
-
-      maybePair <- getNextComparisonPair uid ratings violationPairs
-
-      case maybePair of
-        Nothing -> do
-          isTrulyComplete <- checkIfComplete uid
-          MonadIO.liftIO $ putStrLn ""
-          if isTrulyComplete
-            then MonadIO.liftIO $ putStrLn ">>> Ranking appears complete and consistent. <<<"
-            else MonadIO.liftIO $ putStrLn ">>> No more comparison pairs available based on current strategy (may indicate completion or need for different pair selection logic). <<<"
-
-        Just (option1, option2) -> do
-          let prevRankings = ratingsToRankings ratings
-          let prevRatingsMap = ratingsToMap ratings
-
-          MonadIO.liftIO $ Printf.printf "\n--- Comparison %d ---\n" comparisonNum
-          result <- presentComparison uid option1 option2
-
-          recordComparison uid option1 option2 result
-          updateRatings uid option1 option2 result
-
-          displayRankings uid prevRankings prevRatingsMap
-          displaySessionStatus uid
-
-          continueSession (comparisonNum + 1)
-
-reportFinalStatus :: UserId -> [Option] -> App ()
-reportFinalStatus user options = do
-  MonadIO.liftIO $ putStrLn "\n--- Final Results ---"
-  finalRankingsWithScores <- getUserRatings user options
-
-  MonadIO.liftIO $ putStrLn $ "Final ratings for user " ++ show user ++ ":"
-  Monad.forM_ (zip [1 :: Int ..] finalRankingsWithScores) $ \(rank, (option, rating)) ->
-      MonadIO.liftIO $ Printf.printf "  %d. %s: %.2f\n" rank (show $ optionName option) rating
-
-  displaySessionStatus user
-
-  MonadIO.liftIO $ putStrLn "\nEvaluation finished."
-
-runInteractiveSession :: UserId -> [Option] -> App ()
-runInteractiveSession user options = do
-  MonadIO.liftIO $ putStrLn "Starting ConsoleUI..."
-  runEvaluationSession user
-  reportFinalStatus user options
