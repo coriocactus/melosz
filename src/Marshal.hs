@@ -1,23 +1,15 @@
 module Marshal where
 
 import qualified Control.Monad as Monad
-import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.IORef as IORef
 
 import Types
 import AppState
 
-readState :: App AppState
-readState = do
-  stateRef <- MonadReader.asks configStateRef
-  MonadIO.liftIO $ IORef.readIORef stateRef
-
 setupOption :: Option -> App ()
 setupOption newOption = do
-  currentState <- readState
+  currentState <- readCurrentState
   let alreadyExists = Set.member newOption (stateOptions currentState)
   Monad.unless alreadyExists $ do
     let existingOptions = stateOptions currentState
@@ -31,7 +23,7 @@ setupOption newOption = do
 
 setupUser :: UserId -> App ()
 setupUser userId = do
-  currentState <- readState
+  currentState <- readCurrentState
   let userExists = Map.member userId (stateUserStates currentState)
   Monad.unless userExists $ do
     optionsSet <- getOptions

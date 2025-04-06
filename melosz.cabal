@@ -30,6 +30,7 @@ common web-deps
   build-depends:
     blaze-html,
     blaze-markup,
+    http-api-data,
     http-types,
     servant-blaze,
     servant-server,
