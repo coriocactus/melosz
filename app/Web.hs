@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
 
-module Web where
+module Main where
 
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
@@ -18,7 +18,6 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Text.Blaze.Html.Renderer.Utf8 as R
--- import qualified Text.Blaze.Internal as I
 import qualified Text.Printf as Printf
 import qualified Web.FormUrlEncoded as Form
 
@@ -36,6 +35,16 @@ import Scheduler
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | Web Runner
+
+main :: IO ()
+main = runWeb 8080
+
+runWeb :: Int -> IO ()
+runWeb port = do
+  let appToRun :: App AppConfig
+      appToRun = colourfulScaffold
+  putStrLn $ "Starting server on port " ++ show port
+  runner port appToRun
 
 runner :: Int -> App AppConfig -> IO ()
 runner port app = do
@@ -67,13 +76,6 @@ colourfulScaffold = do
   setupUser user
 
   MonadReader.ask
-
-runWebserver :: Int -> IO ()
-runWebserver port = do
-  let appToRun :: App AppConfig
-      appToRun = colourfulScaffold
-  putStrLn $ "Starting server on port " ++ show port
-  runner port appToRun
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 
@@ -163,7 +165,7 @@ type CompareAPI = Servant.EmptyAPI
   :<|> ComparePostAPI
 
 compareGetButler :: Servant.Proxy CompareGetAPI
-compareGetButler = Servant.Proxy 
+compareGetButler = Servant.Proxy
 
 compareServant :: AppConfig -> Servant.Server CompareAPI
 compareServant cfg = Servant.emptyServer

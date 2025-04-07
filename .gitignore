@@ -1,1 +1,3 @@
-dist-newstyle/*
+**/dist-newstyle/*
+**/node_modules/*
+**/dist/*

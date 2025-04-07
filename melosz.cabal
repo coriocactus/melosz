@@ -21,44 +21,59 @@ common common-options
   default-language: GHC2024
   build-depends:
     base ^>=4.20.0.0,
+    aeson,
     bytestring,
     containers,
+    http-api-data,
     mtl,
-    random
+    random,
+    text
+
+common api-deps
+  build-depends:
+    servant-server,
+    wai,
+    wai-cors,
+    wai-extra,
+    warp
 
 common web-deps
   build-depends:
     blaze-html,
     blaze-markup,
-    http-api-data,
     http-types,
     servant-blaze,
     servant-server,
-    text,
     wai,
     warp
 
 library
-  import: common-options, common-warnings, web-deps
+  import: common-options, common-warnings
   hs-source-dirs: src
   exposed-modules:
     Types AppState
     Rating Preference Scheduler Marshal Ranking
-    Console Web
+
+executable api
+  import: common-options, common-warnings, api-deps
+  ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
+  build-depends: melosz
+  hs-source-dirs: app
+  main-is: API.hs
 
 executable web
   import: common-options, common-warnings, web-deps
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
   hs-source-dirs: app
-  main-is: WebMain.hs
+  main-is: Web.hs
 
 executable console
   import: common-options, common-warnings
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
   hs-source-dirs: app
-  main-is: ConsoleMain.hs
+  main-is: Console.hs
 
 test-suite core
   import: common-options, common-warnings

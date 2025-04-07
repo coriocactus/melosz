@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Console where
+module Main where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
@@ -20,6 +20,16 @@ import Preference
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | Console Runner
+
+main :: IO ()
+main = runConsole
+
+runConsole :: IO ()
+runConsole = do
+  let appToRun :: App ()
+      appToRun = colourfulScaffold >>=
+        (\(options, user) -> runInteractiveSession user options)
+  runner appToRun
 
 runner :: App a -> IO a
 runner app = do
@@ -50,13 +60,6 @@ colourfulScaffold = do
   setupUser user
 
   pure (options, user)
-
-runConsole :: IO ()
-runConsole = do
-  let appToRun :: App ()
-      appToRun = colourfulScaffold >>=
-        (\(options, user) -> runInteractiveSession user options)
-  runner appToRun
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 
