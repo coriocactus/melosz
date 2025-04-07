@@ -16,6 +16,7 @@ newtype OptionId = OptionId BS.ByteString
 data Option = Option
   { optionId :: OptionId
   , optionName :: BS.ByteString
+  , optionSrc :: BS.ByteString
   } deriving (Show, Eq, Ord)
 
 type Relation = Set.Set (Option, Option)
@@ -31,8 +32,8 @@ data Comparison = Comparison
   , compTimestamp :: Int
   } deriving (Show, Eq)
 
-createOption :: OptionId -> BS.ByteString -> Option
-createOption oid name = Option oid name
+createOption :: OptionId -> BS.ByteString -> BS.ByteString -> Option
+createOption oid name src = Option oid name src
 
 createUser :: BS.ByteString -> UserId
 createUser uid = UserId uid

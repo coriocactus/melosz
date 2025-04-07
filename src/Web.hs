@@ -51,15 +51,15 @@ runner port app = do
 colourfulScaffold :: App AppConfig
 colourfulScaffold = do
   let options =
-        [ createOption "red" "Red"
-        , createOption "orange" "Orange"
-        , createOption "yellow" "Yellow"
-        , createOption "green" "Green"
-        , createOption "blue" "Blue"
-        , createOption "violet" "Violet"
-        , createOption "indigo" "Indigo"
-        , createOption "cyan" "Cyan"
-        , createOption "magenta" "Magenta"
+        [ createOption "red" "Red" ""
+        , createOption "orange" "Orange" ""
+        , createOption "yellow" "Yellow" ""
+        , createOption "green" "Green" ""
+        , createOption "blue" "Blue" ""
+        , createOption "violet" "Violet" ""
+        , createOption "indigo" "Indigo" ""
+        , createOption "cyan" "Cyan" ""
+        , createOption "magenta" "Magenta" ""
         ]
   let user = "coriocactus"
 
@@ -236,6 +236,28 @@ mkComparePage userId mPair rankings status =
         H.h2 "Session Status"
         mkStatusSection status
 
+mkComparisonSection :: UserId -> Option -> Option -> H.Html
+mkComparisonSection userId opt1 opt2 = do
+  let uidText = TextEnc.decodeUtf8 (unUserId userId)
+      oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
+      oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
+      postUrl = H.textValue $ Text.pack $ "/compare/" ++ Text.unpack uidText
+
+  H.div H.! A.class_ "comparison-box" $ do
+    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
+      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
+      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+        H.toHtml (BSC.unpack $ optionName opt1)
+
+    H.span H.! A.style "margin: 0 1em;" $ " OR "
+
+    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
+      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
+      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+        H.toHtml (BSC.unpack $ optionName opt2)
+
 mkRankingsTable :: [(Option, Double)] -> H.Html
 mkRankingsTable sortedRatings = H.table $ do
   H.thead $ H.tr $ do
@@ -269,28 +291,6 @@ mkStatusSection status = do
       H.p $ H.toHtml violationsStr
       H.ul H.! A.class_ "violation-list" $ do
         mapM_ (H.li . H.toHtml . formatViolationHtml) (statusViolations status)
-
-mkComparisonSection :: UserId -> Option -> Option -> H.Html
-mkComparisonSection userId opt1 opt2 = do
-  let uidText = TextEnc.decodeUtf8 (unUserId userId)
-      oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
-      oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
-      postUrl = H.textValue $ Text.pack $ "/compare/" ++ Text.unpack uidText
-
-  H.div H.! A.class_ "comparison-box" $ do
-    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
-      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text) -- opt1 wins
-      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)  -- opt2 loses
-      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
-        H.toHtml (BSC.unpack $ optionName opt1)
-
-    H.span H.! A.style "margin: 0 1em;" $ " OR "
-
-    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
-      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)  -- opt2 wins
-      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text) -- opt1 loses
-      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
-        H.toHtml (BSC.unpack $ optionName opt2)
 
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do

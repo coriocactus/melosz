@@ -31,7 +31,7 @@ instance Arbitrary TestOption where
   arbitrary = do
     testOid <- arbitrary :: Gen TestOptionId
     testBs <- arbitrary :: Gen TestBS
-    return $ TestOption (Option (unTestOptionId testOid) (unTestBS testBs))
+    return $ TestOption (Option (unTestOptionId testOid) (unTestBS testBs) (unTestBS testBs))
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | OptionId

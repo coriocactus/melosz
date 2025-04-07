@@ -73,11 +73,11 @@ testUser2 :: UserId
 testUser2 = "user2"
 
 optA, optB, optC, optD, optE :: Option
-optA = createOption "A" "Option A"
-optB = createOption "B" "Option B"
-optC = createOption "C" "Option C"
-optD = createOption "D" "Option D"
-optE = createOption "E" "Option E"
+optA = createOption "A" "Option A" ""
+optB = createOption "B" "Option B" ""
+optC = createOption "C" "Option C" ""
+optD = createOption "D" "Option D" ""
+optE = createOption "E" "Option E" ""
 
 allTestOptions :: [Option]
 allTestOptions = [optA, optB, optC, optD]

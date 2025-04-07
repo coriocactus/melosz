@@ -100,11 +100,11 @@ goldenMain :: IO ()
 goldenMain = do
   putStrLn "--- SRA Example based on Paper Table 1 ---"
 
-  let optA = createOption "A" "A"
-      optB = createOption "B" "B"
-      optC = createOption "C" "C"
-      optD = createOption "D" "D"
-      optE = createOption "E" "E"
+  let optA = createOption "A" "A" ""
+      optB = createOption "B" "B" ""
+      optC = createOption "C" "C" ""
+      optD = createOption "D" "D" ""
+      optE = createOption "E" "E" ""
 
   let allOptionsSet = Set.fromList [optA, optB, optC, optD, optE]
 
@@ -135,11 +135,11 @@ testMain :: IO ()
 testMain = do
   putStrLn "--- SRA Example (Bilateral) ---"
 
-  let optA = createOption "A" "A"
-      optB = createOption "B" "B"
-      optC = createOption "C" "C"
-      optD = createOption "D" "D"
-      optE = createOption "E" "E"
+  let optA = createOption "A" "A" ""
+      optB = createOption "B" "B" ""
+      optC = createOption "C" "C" ""
+      optD = createOption "D" "D" ""
+      optE = createOption "E" "E" ""
 
   let allOptionsSet = Set.fromList [optA, optB, optC, optD, optE]
 

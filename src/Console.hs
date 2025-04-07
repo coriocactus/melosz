@@ -34,15 +34,15 @@ runner app = do
 colourfulScaffold :: App ([Option], UserId)
 colourfulScaffold = do
   let options =
-        [ createOption "red" "Red"
-        , createOption "orange" "Orange"
-        , createOption "yellow" "Yellow"
-        , createOption "green" "Green"
-        , createOption "blue" "Blue"
-        , createOption "violet" "Violet"
-        , createOption "indigo" "Indigo"
-        , createOption "cyan" "Cyan"
-        , createOption "magenta" "Magenta"
+        [ createOption "red" "Red" ""
+        , createOption "orange" "Orange" ""
+        , createOption "yellow" "Yellow" ""
+        , createOption "green" "Green" ""
+        , createOption "blue" "Blue" ""
+        , createOption "violet" "Violet" ""
+        , createOption "indigo" "Indigo" ""
+        , createOption "cyan" "Cyan" ""
+        , createOption "magenta" "Magenta" ""
         ]
   let user = "coriocactus"
 
