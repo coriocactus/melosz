@@ -11,6 +11,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.IORef as IORef
 import qualified Data.List as List
 import qualified Data.Set as Set
+import qualified Data.Text.Encoding as TextEnc
 import qualified GHC.Generics as Generics
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -71,12 +72,38 @@ colourfulScaffold = do
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | SERVANT: WAI APPLICATION
 
-context :: ErrorFormatters
-context = defaultErrorFormatters
+jsonErrorFormatter :: ErrorFormatter
+jsonErrorFormatter typeRep req errMsg =
+  let body = Aeson.encode $ Aeson.object
+        [ "error" Aeson..= errMsg
+        , "source" Aeson..= show typeRep
+        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
+        , "method" Aeson..= TextEnc.decodeUtf8 (Wai.requestMethod req)
+        ]
+  in err400 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
+
+jsonNotFoundErrorFormatter :: NotFoundErrorFormatter
+jsonNotFoundErrorFormatter req =
+  let body = Aeson.encode $ Aeson.object
+        [ "error" Aeson..= ("Not Found" :: String)
+        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
+        ]
+  in err404 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
+
+jsonErrorFormatters :: ErrorFormatters
+jsonErrorFormatters = defaultErrorFormatters
+  { bodyParserErrorFormatter = jsonErrorFormatter
+  , urlParseErrorFormatter = jsonErrorFormatter
+  , headerParseErrorFormatter = jsonErrorFormatter
+  , notFoundErrorFormatter = jsonNotFoundErrorFormatter
+  }
+
+underButler :: Context '[ErrorFormatters]
+underButler = jsonErrorFormatters :. EmptyContext
 
 application :: AppConfig -> Wai.Application
 application cfg = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
-  serveWithContext butler (context :. EmptyContext) (servants cfg)
+  serveWithContext butler underButler (servants cfg)
 
 corsMiddleware :: Wai.Middleware
 corsMiddleware = Cors.cors $ const $ Just Cors.simpleCorsResourcePolicy
@@ -179,7 +206,8 @@ compareServant cfg = emptyServer
                 }
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
-            pure $ Left (err400 { errBody = "Invalid Option ID provided" })
+            pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: String)]) })
+
 
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do
@@ -219,9 +247,9 @@ data UserSessionData = UserSessionData
 instance Aeson.ToJSON UserSessionData
 
 data ComparisonStatus = ComparisonStatus
-  { statusProgress    :: (Int, Int, Double) -- (completed, total, percent)
-  , statusAgreement   :: Double -- percent
-  , statusConsistency :: Double -- percent
+  { statusProgress    :: (Int, Int, Double)         -- completed, total, percent
+  , statusAgreement   :: Double                     -- percent
+  , statusConsistency :: Double                     -- percent
   , statusViolations  :: [(Option, Option, Option)] -- cycle violations
   , statusIsComplete  :: Bool
   } deriving (Generics.Generic, Show)

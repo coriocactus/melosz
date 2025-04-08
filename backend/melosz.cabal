@@ -1,9 +1,6 @@
 cabal-version:  3.0
 name:           melosz
 version:        0.1.0.0
-license:        MIT
-license-file:   README.md
-author:         coriocactus
 build-type:     Simple
 
 common common-warnings
