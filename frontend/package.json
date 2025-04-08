@@ -1,12 +1,12 @@
 {
   "scripts": {
     "tailwind-dev": "bunx @tailwindcss/cli -i ./input.css -o ./dist/styles.css --watch",
-    "html-ts-dev": "BUN_ENV=dev bun --hot serve.ts",
+    "html-ts-dev": "BUN_ENV=dev bun --hot server.ts",
     "dev": "concurrently \"bun run tailwind-dev\" \"bun run html-ts-dev\"",
     "html-ts": "bun build ./index.html --outdir ./dist --minify",
     "tailwind": "bunx @tailwindcss/cli -i ./input.css -o ./dist/styles.css --minify",
     "build": "bun run tailwind && bun run html-ts",
-    "prod": "BUN_ENV=prod bun run serve.ts"
+    "prod": "BUN_ENV=prod bun run server.ts"
   },
   "dependencies": {},
   "devDependencies": {

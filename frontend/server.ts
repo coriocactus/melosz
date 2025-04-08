@@ -1,6 +1,8 @@
 import { serve } from 'bun';
 import path from 'path';
 
+import { API_BASE_URL, handleAPIProxy } from './api';
+
 // --- Configuration ---
 const PORT = process.env['PORT'] || 3000;
 const BUN_ENV = process.env['BUN_ENV'] || 'dev';
@@ -15,10 +17,6 @@ const buildDir = path.resolve(scriptDir, 'dist');
 const rootDir = isProduction ? buildDir : publicDir;
 const indexHtmlPath = path.join(rootDir, 'index.html');
 
-console.log(`[${BUN_ENV}] Running server...`);
-console.log(`[${BUN_ENV}] Serving from: ${rootDir}`);
-console.log(`[${BUN_ENV}] Port: ${PORT}`);
-
 // --- Server Logic ---
 const server = serve({
   port: PORT,
@@ -29,6 +27,11 @@ const server = serve({
     let fileToServe: ReturnType<typeof Bun.file> | null = null;
 
     console.log(`[${BUN_ENV}] Request: ${requestedPath}`);
+
+    const proxyResponse = await handleAPIProxy(req, API_BASE_URL);
+    if (proxyResponse) {
+      return proxyResponse;
+    }
 
     try {
       if (isProduction) {
@@ -120,4 +123,8 @@ const server = serve({
   },
 });
 
-console.log(`[${BUN_ENV}] Server listening on http://${server.hostname}:${server.port}`);
+console.log(`[${BUN_ENV}] === === === Running server === === ===`);
+console.log(`[${BUN_ENV}] * Root: ${rootDir}`);
+console.log(`[${BUN_ENV}] * URL: http://${server.hostname}:${server.port}`);
+console.log(`[${BUN_ENV}] * API: ${API_BASE_URL}`);
+
