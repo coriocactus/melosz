@@ -35,7 +35,8 @@ runAPI :: Int -> IO ()
 runAPI port = do
   let appToRun :: App AppConfig
       appToRun = colourfulScaffold
-  putStrLn $ "Starting API server on port " ++ show port
+  putStrLn $ "=== === === Running server === === ==="
+  putStrLn $ "Listening: http://localhost:" ++ show port
   runner port appToRun
 
 runner :: Int -> App AppConfig -> IO ()
@@ -102,7 +103,8 @@ underButler :: Context '[ErrorFormatters]
 underButler = jsonErrorFormatters :. EmptyContext
 
 application :: AppConfig -> Wai.Application
-application cfg = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
+application cfg = corsMiddleware $
+  Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
   serveWithContext butler underButler (servants cfg)
 
 corsMiddleware :: Wai.Middleware

@@ -1,5 +1,3 @@
-export const API_BASE_URL = process.env['API_URL'] || 'http://localhost:8080/api';
-
 // --- Type Definitions ---
 
 export type OptionId = string;
@@ -30,8 +28,9 @@ export interface ComparisonSubmission {
   loserId: OptionId;
 }
 
-export interface ApiError {
-  errorMessage: string;
+export interface APIError {
+  error?: string;
+  errorMessage?: string;
 }
 
 // --- API Proxy ---
@@ -44,22 +43,35 @@ export async function handleAPIProxy(req: Request, targetApiUrl: string): Promis
     return null;
   }
 
-  const proxyUrl = `${targetApiUrl}${pathname}${url.search}`;
-  console.log(`Proxying API request: ${req.method} ${pathname} -> ${proxyUrl}`);
+  const target = `${targetApiUrl}${pathname.substring('/api'.length)}${url.search}`;
 
-  const proxyReq = new Request(proxyUrl, {
-    method: req.method,
-    headers: req.headers,
-    body: req.body,
-    redirect: 'manual',
-  });
+  console.log(`Proxying API request: ${req.method} ${pathname} -> ${target}`);
 
-  proxyReq.headers.delete('host');
+  const proxyHeaders = new Headers(req.headers);
+  proxyHeaders.delete('content-length');
+  proxyHeaders.delete('host');
+  if (req.method === 'POST' && !proxyHeaders.has('Content-Type')) {
+    proxyHeaders.set('Content-Type', 'application/json');
+  }
+  proxyHeaders.set('Accept', 'application/json');
 
   try {
-    const proxyRes = await fetch(proxyReq);
+    const proxyRes = await fetch(target, {
+      method: req.method,
+      headers: proxyHeaders,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
+      redirect: 'manual',
+    });
 
     const responseHeaders = new Headers(proxyRes.headers);
+
+    responseHeaders.delete('transfer-encoding');
+
+    // Check for CORS headers needed by the browser, even if it's the same origin due to different ports during dev
+    if (!responseHeaders.has('Access-Control-Allow-Origin')) {
+      // Adjust for prod if needed
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
+    }
 
     return new Response(proxyRes.body, {
       status: proxyRes.status,
@@ -67,61 +79,88 @@ export async function handleAPIProxy(req: Request, targetApiUrl: string): Promis
       headers: responseHeaders
     });
   } catch (error) {
-    console.error(`API Proxy error for ${proxyUrl}:`, error);
-    return new Response("API Proxy Error", { status: 502 });
+    console.error(`API Proxy error for ${target}:`, error);
+    return new Response(JSON.stringify({ error: "API Proxy Error" }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 
 // --- Helper for Fetch ---
 
+export const API_BASE_URL = 'http://localhost:8080/api';
+
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const defaultHeaders = {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
+
+  const headers = new Headers({ ...defaultHeaders, ...options.headers });
+
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
 
   try {
     const response = await fetch(url, {
       ...options,
-      headers: {
-        ...defaultHeaders,
-        ...options.headers,
-      },
+      headers: headers,
     });
 
     if (!response.ok) {
-      let errorData: ApiError = { errorMessage: `HTTP error ${response.status}: ${response.statusText}` };
+      let errorData: APIError = { errorMessage: `HTTP error ${response.status}: ${response.statusText}` };
       try {
-        errorData = await response.json();
+        const parsedError = await response.json();
+        if (parsedError.error) {
+          errorData.errorMessage = parsedError.error;
+        } else {
+          errorData.errorMessage = JSON.stringify(parsedError);
+        }
       } catch (e) {
         console.warn("Could not parse error response JSON:", e);
+        try {
+          const textError = await response.text();
+          errorData.errorMessage = textError || errorData.errorMessage;
+        } catch (textE) {
+        }
       }
-      throw new Error(errorData.errorMessage || `Request failed with status ${response.status}`);
+      console.error(`API Error Response (${response.status} for ${url}):`, errorData.errorMessage);
+      throw new Error(errorData.errorMessage);
     }
 
-    if (response.status === 204) {
+    // Handle No Content response (e.g., from DELETE or some POSTs)
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
       return null as T;
     }
 
+    // Assume JSON response for other successful statuses
     return await response.json() as T;
 
   } catch (error) {
     console.error(`API request failed: ${options.method || 'GET'} ${url}`, error);
     // Re-throw the error so the calling code can handle it
-    throw error;
+    // Ensure it's always an Error object
+    if (error instanceof Error) {
+      throw error;
+    } else {
+      throw new Error(String(error));
+    }
   }
 }
 
 // --- API Functions ---
 
 export function getCompareData(userId: UserId): Promise<UserSessionData> {
+  console.log(`API: Fetching compare data for user: ${userId}`);
   return fetchAPI<UserSessionData>(`/compare/${encodeURIComponent(userId)}`, {
     method: 'GET',
   });
 }
 
 export function postComparisonResult(userId: UserId, submission: ComparisonSubmission): Promise<UserSessionData> {
+  console.log(`API: Posting comparison for user: ${userId}`, submission);
   return fetchAPI<UserSessionData>(`/compare/${encodeURIComponent(userId)}`, {
     method: 'POST',
     body: JSON.stringify(submission),
