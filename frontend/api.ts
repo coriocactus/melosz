@@ -17,10 +17,10 @@ export interface ComparisonStatus {
   statusIsComplete: boolean;
 }
 
-export interface UserSessionData {
-  usdNextPair: [Option, Option] | null; // Use null for Maybe Nothing
-  usdRankings: [Option, number][];      // Array of [Option, Rating]
-  usdStatus: ComparisonStatus;
+export interface UserSession {
+  usNextPair: [Option, Option] | null; // Use null for Maybe Nothing
+  usRankings: [Option, number][];      // Array of [Option, Rating]
+  usStatus: ComparisonStatus;
 }
 
 export interface ComparisonSubmission {
@@ -89,7 +89,7 @@ export async function handleAPIProxy(req: Request, targetApiUrl: string): Promis
 
 // --- Helper for Fetch ---
 
-export const API_BASE_URL = 'http://localhost:8080/api';
+export const API_BASE_URL = 'http://localhost:8080';
 
 async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -152,16 +152,16 @@ async function fetchAPI<T>(endpoint: string, options: RequestInit = {}): Promise
 
 // --- API Functions ---
 
-export function getCompareData(userId: UserId): Promise<UserSessionData> {
+export function getCompareData(userId: UserId): Promise<UserSession> {
   console.log(`API: Fetching compare data for user: ${userId}`);
-  return fetchAPI<UserSessionData>(`/compare/${encodeURIComponent(userId)}`, {
+  return fetchAPI<UserSession>(`/compare/${encodeURIComponent(userId)}`, {
     method: 'GET',
   });
 }
 
-export function postComparisonResult(userId: UserId, submission: ComparisonSubmission): Promise<UserSessionData> {
+export function postComparisonResult(userId: UserId, submission: ComparisonSubmission): Promise<UserSession> {
   console.log(`API: Posting comparison for user: ${userId}`, submission);
-  return fetchAPI<UserSessionData>(`/compare/${encodeURIComponent(userId)}`, {
+  return fetchAPI<UserSession>(`/compare/${encodeURIComponent(userId)}`, {
     method: 'POST',
     body: JSON.stringify(submission),
   });

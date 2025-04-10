@@ -1,5 +1,5 @@
 --test-message="running melosz..."
---command=cabal repl web
+--command=cabal repl api
 --test=Main.main
 --restart=./melosz.cabal
 --reload=./app

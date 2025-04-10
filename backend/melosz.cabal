@@ -28,7 +28,11 @@ common common-options
 
 common api-deps
   build-depends:
+    SHA,
+    base64,
     servant-server,
+    time,
+    utf8-string,
     wai,
     wai-cors,
     wai-extra,

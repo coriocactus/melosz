@@ -1,5 +1,4 @@
-// frontend/RankingsView.ts
-import type { Option } from './api';
+import type { Option } from './api.ts';
 
 /**
  * Mounts the rankings view component.

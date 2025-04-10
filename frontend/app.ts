@@ -1,4 +1,4 @@
-import type { ComparisonSubmission, UserSessionData, UserId } from './api.ts';
+import type { ComparisonSubmission, UserSession, UserId } from './api.ts';
 
 import { getCompareData, postComparisonResult } from './api.ts';
 import { ComparisonView } from './ComparisonView.ts';
@@ -13,7 +13,7 @@ import { StatusView } from './StatusView.ts';
  */
 export function initializeApp(rootElement: HTMLElement) {
   // --- State ---
-  let currentData: UserSessionData | null = null;
+  let currentData: UserSession | null = null;
   let isLoading = false;
   let currentError: string | null = null;
   const userId: UserId = "coriocactus"; // Hardcoded for now
@@ -117,9 +117,9 @@ export function initializeApp(rootElement: HTMLElement) {
 
     // Dispatch data to sub-components if data is available
     if (currentData) {
-      comparisonViewEl.dispatchEvent(new CustomEvent('renderComparison', { detail: currentData.usdNextPair }));
-      rankingsViewEl.dispatchEvent(new CustomEvent('renderRankings', { detail: currentData.usdRankings }));
-      statusViewEl.dispatchEvent(new CustomEvent('renderStatus', { detail: currentData.usdStatus }));
+      comparisonViewEl.dispatchEvent(new CustomEvent('renderComparison', { detail: currentData.usNextPair }));
+      rankingsViewEl.dispatchEvent(new CustomEvent('renderRankings', { detail: currentData.usRankings }));
+      statusViewEl.dispatchEvent(new CustomEvent('renderStatus', { detail: currentData.usStatus }));
     } else if (!isLoading) {
         // Handle state where there's no data and not loading (initial or error state)
         // You might want to clear the sub-components or show specific messages
