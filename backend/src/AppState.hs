@@ -102,4 +102,3 @@ modifyStateRef f = do
 
 modifyStateRef_ :: (AppState -> AppState) -> App ()
 modifyStateRef_ f = modifyStateRef (\s -> (f s, ()))
-

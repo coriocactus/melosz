@@ -30,6 +30,8 @@ common api-deps
   build-depends:
     SHA,
     base64,
+    hedis,
+    resource-pool,
     servant-server,
     time,
     utf8-string,
