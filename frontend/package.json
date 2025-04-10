@@ -4,7 +4,6 @@
     "tailwind-dev": "bunx @tailwindcss/cli -i ./input.css -o ./dist/styles.css --watch",
     "serve-dev": "BUN_ENV=dev bun --hot server.ts",
     "dev": "concurrently \"bun run tailwind-dev\" \"bun run html-ts-dev\" \"bun run serve-dev\"",
-
     "html-ts": "bun build ./index.html --outdir ./dist --minify",
     "tailwind": "bunx @tailwindcss/cli -i ./input.css -o ./dist/styles.css --minify",
     "build": "bun run tailwind && bun run html-ts",
@@ -14,7 +13,7 @@
   "dependencies": {},
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.3",
-    "@types/bun": "^1.2.8",
+    "@types/bun": "^1.2.9",
     "concurrently": "^9.1.2",
     "tailwindcss": "^4.1.3"
   }
