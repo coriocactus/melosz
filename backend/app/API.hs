@@ -266,13 +266,13 @@ authServant pool = emptyServer
               run $ Right NoContent
             Right False -> do
               MonadIO.liftIO $ putStrLn $ "User not found: " ++ show email
-              run $ Left (err409 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("User not found" :: String)]) })
+              run $ Left (err409 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("User not found" :: Text.Text)]) })
             _ -> do
               MonadIO.liftIO $ putStrLn $ "Error: Redis operation failed"
-              run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: String)]) })
+              run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: Text.Text)]) })
         Left err -> do
           MonadIO.liftIO $ putStrLn $ "Error: " ++ show err
-          run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= (show err :: String)]) })
+          run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= err]) })
 
     handlePostRegister :: AuthPayload -> Handler NoContent
     handlePostRegister payload = do
@@ -285,7 +285,7 @@ authServant pool = emptyServer
           case eitherEmailExists of
             Right True -> do
               MonadIO.liftIO $ putStrLn $ "Email already registered: " ++ show email
-              run $ Left (err409 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Email already registered" :: String)]) })
+              run $ Left (err409 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Email already registered" :: Text.Text)]) })
             Right False -> do
               let token = generateToken now [ "123", "234", "345", email ]
               _ <- runRedis pool $ Redis.hset "tokens" (TextEnc.encodeUtf8 token) email
@@ -293,10 +293,10 @@ authServant pool = emptyServer
               run $ Right NoContent
             _ -> do
               MonadIO.liftIO $ putStrLn $ "Error: Redis operation failed"
-              run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: String)]) })
+              run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: Text.Text)]) })
         Left err -> do
           MonadIO.liftIO $ putStrLn $ "Error: " ++ show err
-          run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= (show err :: String)]) })
+          run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= err]) })
 
     handleGetAuth :: Token -> Handler AuthHash
     handleGetAuth token = do
@@ -332,16 +332,16 @@ authServant pool = emptyServer
                   run $ Right $ AuthHash { authHash = hash }
                 _ -> do
                   MonadIO.liftIO $ putStrLn $ "Error: Redis operation failed"
-                  run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: String)]) })
+                  run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: Text.Text)]) })
             Left err -> do
               MonadIO.liftIO $ putStrLn $ "Error: " ++ show err
-              run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= (show err :: String)]) })
+              run $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= err]) })
         Right Nothing -> do
           MonadIO.liftIO $ putStrLn $ "Error: Login link expired"
-          run $ Left (err410 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Login link expired" :: String)]) })
+          run $ Left (err410 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Login link expired" :: Text.Text)]) })
         _ -> do
           MonadIO.liftIO $ putStrLn $ "Error: Redis operation failed"
-          run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: String)]) })
+          run $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis operation failed" :: Text.Text)]) })
 
 encodeBS :: BS.ByteString -> Text.Text
 encodeBS bs = Base64.extractBase64 $ Base64BS.encodeBase64 bs
@@ -525,7 +525,7 @@ compareServant cfg _pool = emptyServer
                 }
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
-            pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: String)]) })
+            pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })
 
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do
