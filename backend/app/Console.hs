@@ -19,8 +19,7 @@ import Marshal
 import Scheduler
 import Preference
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | Console Runner
+-- application
 
 main :: IO ()
 main = runConsole
@@ -61,7 +60,7 @@ colourfulScaffold = do
 
   pure (options, user)
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
+-- event loop
 
 runInteractiveSession :: UserId -> [Option] -> App ()
 runInteractiveSession user options = do
@@ -112,7 +111,7 @@ reportFinalStatus user options = do
 
   MonadIO.liftIO $ putStrLn "\nEvaluation finished."
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
+-- display
 
 presentComparison :: UserId -> Option -> Option -> App MatchResult
 presentComparison uid option1 option2 = do
@@ -142,11 +141,6 @@ presentComparison uid option1 option2 = do
             Printf.printf "2. %s\n" (BSC.unpack $ optionName dispOpt2)
             putStr "Your choice (1 or 2): "
           getValidChoice swapped dispOpt1 dispOpt2
-
-formatViolation :: (Option, Option, Option) -> String
-formatViolation (a, c, b) =
-  Printf.printf "Cycle involving %s, %s, %s"
-    (BSC.unpack $ optionName a) (BSC.unpack $ optionName b) (BSC.unpack $ optionName c)
 
 displayRankings :: UserId -> [(Option, Int)] -> Map.Map OptionId Double -> App ()
 displayRankings uid prevRankings _prevRatingsMap = do

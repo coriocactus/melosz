@@ -33,6 +33,8 @@ import Auth
 import Actions
 import Redis
 
+-- application
+
 main :: IO ()
 main = launch 8080
 
@@ -72,8 +74,7 @@ colourfulScaffold = do
 
   MonadReader.ask
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: WAI APPLICATION
+-- webserver
 
 corsMiddleware :: Wai.Middleware
 corsMiddleware = Cors.cors $ const $ Just Cors.simpleCorsResourcePolicy
@@ -129,8 +130,7 @@ servants :: AppConfig -> RedisPool -> Server API
 servants cfg pool = authServant pool
   :<|> compareServant cfg pool
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: COMPARE API
+-- comparison
 
 data UserSession = UserSession
   { usNextPair :: Maybe (Option, Option)

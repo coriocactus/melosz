@@ -33,8 +33,7 @@ import Preference
 import Rating
 import Scheduler
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | Web Runner
+-- application
 
 main :: IO ()
 main = runWeb 8080
@@ -76,7 +75,7 @@ colourfulScaffold = do
 
   MonadReader.ask
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
+-- webserver
 
 application :: AppConfig -> Wai.Application
 application cfg = notFoundMiddleware (Servant.serve butler (servants cfg))
@@ -108,8 +107,7 @@ notFoundMiddleware app req respond = app req $ \response ->
 runApp :: AppConfig -> App a -> Servant.Handler a
 runApp cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: HOME
+-- servant
 
 type HomeAPI = Servant.EmptyAPI
   :<|> Get '[ServantBlaze.HTML] H.Html
@@ -124,7 +122,6 @@ homeServant _cfg = Servant.emptyServer
     handleHome :: Servant.Handler H.Html
     handleHome = do
       MonadIO.liftIO $ putStrLn "Serving /"
-      -- Default to user 'coriocactus' for the home redirect
       let userUrl = Servant.safeLink butler compareGetButler (Text.pack "coriocactus")
       throwRedirect userUrl
 
@@ -132,11 +129,7 @@ throwRedirect :: Servant.Link -> Servant.Handler a
 throwRedirect link =
   Servant.throwError Servant.err302 { Servant.errHeaders = [("Location", location)] }
   where
-    -- Construct absolute path for redirect
     location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ (Servant.uriPath $ Servant.linkURI link)
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: COMPARE
 
 data HtmlComparisonStatus = HtmlComparisonStatus
   { htmlStatusProgress :: (Int, Int, Double)
@@ -336,8 +329,7 @@ gatherHtmlStatusData uid ratings violationsSet = do
     , htmlStatusIsComplete = isComplete && Set.null violationsSet
     }
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | BLAZE TEMPLATES
+-- blaze templates
 
 pageLayout :: Text.Text -> H.Html -> H.Html
 pageLayout title bodyContent = H.docTypeHtml $ do
@@ -386,8 +378,7 @@ mkErrorPage errorMsg = pageLayout "Error" $ do
   H.p H.! A.style "color: #c00; font-weight: bold;" $ H.toHtml errorMsg
   H.p $ H.a H.! A.href "/" $ "Go back home"
 
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | UTILS
+-- utils
 
 unUserId :: UserId -> BSC.ByteString
 unUserId (UserId bs) = bs
