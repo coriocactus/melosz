@@ -56,8 +56,6 @@ getNextComparisonPair :: UserId -> App (Maybe (Option, Option))
 getNextComparisonPair uid = do
   optionsSet <- MonadReader.asks configOptions
   let allPairs = getAllOptionPairsSet optionsSet
-  -- Simple strategy: select the pair with maximum information value from *all* possible pairs
-  -- Note: This doesn't track *which* pairs have been compared recently.
   selectMaxInfoPair uid allPairs
 
 mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
