@@ -10,15 +10,15 @@ import AppState
 import Glicko2
 
 getUserRating :: UserId -> Option -> App Double
-getUserRating uid option = glickoRating <$> getGlickoPlayer' uid (optionId option)
+getUserRating uid option = glickoRating <$> getGlicko' uid (optionId option)
 
 getUserRatings :: UserId -> [Option] -> App [(Option, Double)]
 getUserRatings uid options = do
-  playersWithOpts <- Monad.mapM (\opt -> (,) opt <$> getGlickoPlayer' uid (optionId opt)) options
-  pure $ List.sortBy (Ord.comparing (Ord.Down . snd)) (mkRatings playersWithOpts)
+  glickosWithOpts <- Monad.mapM (\opt -> (,) opt <$> getGlicko' uid (optionId opt)) options
+  pure $ List.sortBy (Ord.comparing (Ord.Down . snd)) (mkRatings glickosWithOpts)
   where
-    mkRatings :: [(Option, GlickoPlayer)] -> [(Option, Double)]
-    mkRatings glickoWithOpts = map (\(opt, player) -> (opt, glickoRating (glickoToDisplay player))) glickoWithOpts
+    mkRatings :: [(Option, Glicko)] -> [(Option, Double)]
+    mkRatings glickoWithOpts = map (\(opt, glicko) -> (opt, glickoRating (glickoToDisplay glicko))) glickoWithOpts
 
 ratingsToMap :: [(Option, Double)] -> Map.Map OptionId Double
 ratingsToMap ratings = Map.fromList $ map (\(opt, rating) -> (optionId opt, rating)) ratings
@@ -33,8 +33,8 @@ updateRatings uid option1 option2 result = do
       oid1 = optionId option1
       oid2 = optionId option2
 
-  p1 <- getGlickoPlayer' uid oid1
-  p2 <- getGlickoPlayer' uid oid2
+  p1 <- getGlicko' uid oid1
+  p2 <- getGlicko' uid oid2
 
   let (new_p1, new_p2) = calculateNewRatings p1 p2 result tau
 
@@ -42,6 +42,6 @@ updateRatings uid option1 option2 result = do
     Nothing -> s
     Just userState -> s { stateUserStates = updatedUserStates }
       where
-        updatedGlickoPlayers = Map.insert oid1 new_p1 $ Map.insert oid2 new_p2 (userGlickoPlayers userState)
-        updatedUserState = userState { userGlickoPlayers = updatedGlickoPlayers }
+        updatedGlickos = Map.insert oid1 new_p1 $ Map.insert oid2 new_p2 (userGlickos userState)
+        updatedUserState = userState { userGlickos = updatedGlickos }
         updatedUserStates = Map.insert uid updatedUserState (stateUserStates s)

@@ -49,21 +49,21 @@ instance Aeson.ToJSON Option where
     , "src" Aeson..= TextEnc.decodeUtf8 (optionSrc opt)
     ]
 
-data GlickoPlayer = GlickoPlayer
+data Glicko = Glicko
   { glickoRating     :: Double -- mu
   , glickoDeviation  :: Double -- delta
   , glickoVolatility :: Double -- sigma
   } deriving (Show, Eq, Generics.Generic)
 
-instance Aeson.ToJSON GlickoPlayer where
+instance Aeson.ToJSON Glicko where
   toJSON gp = Aeson.object
     [ "rating"     Aeson..= glickoRating gp
     , "deviation"  Aeson..= glickoDeviation gp
     , "volatility" Aeson..= glickoVolatility gp
     ]
 
-instance Aeson.FromJSON GlickoPlayer where
-  parseJSON = Aeson.withObject "GlickoPlayer" $ \v -> GlickoPlayer
+instance Aeson.FromJSON Glicko where
+  parseJSON = Aeson.withObject "Glicko" $ \v -> Glicko
     <$> v Aeson..: "rating"
     <*> v Aeson..: "deviation"
     <*> v Aeson..: "volatility"
@@ -77,8 +77,8 @@ defaultDeviation = 350.0
 defaultVolatility :: Double
 defaultVolatility = 0.06
 
-initialGlickoPlayer :: GlickoPlayer
-initialGlickoPlayer = GlickoPlayer defaultRating defaultDeviation defaultVolatility
+initialGlicko :: Glicko
+initialGlicko = Glicko defaultRating defaultDeviation defaultVolatility
 
 type Relation = Set.Set (Option, Option)
 

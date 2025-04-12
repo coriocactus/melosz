@@ -82,9 +82,9 @@ mkAppState options userStatesList = initialState
   , stateUserStates = Map.fromList userStatesList
   }
 
-mkUserState :: Map.Map OptionId GlickoPlayer -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
+mkUserState :: Map.Map OptionId Glicko -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
 mkUserState glickoMap prefs violations uncompared = UserState
-  { userGlickoPlayers = glickoMap
+  { userGlickos = glickoMap
   , userPreferences = prefs
   , userViolations = violations
   , userUncomparedPairs = uncompared
@@ -92,12 +92,12 @@ mkUserState glickoMap prefs violations uncompared = UserState
 
 setupStateSingleUser :: UserId -> Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> AppState
 setupStateSingleUser userId options prefs violations uncompared =
-  let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
-      uState = mkUserState initialGlicko prefs violations uncompared
+  let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
+      uState = mkUserState glicko prefs violations uncompared
   in mkAppState options [(userId, uState)]
 
 simpleUserState :: Set.Set Option -> UserState
 simpleUserState options =
-  let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
+  let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
       initialUncompared = getAllOptionPairsSet options
-  in mkUserState initialGlicko Set.empty Set.empty initialUncompared
+  in mkUserState glicko Set.empty Set.empty initialUncompared

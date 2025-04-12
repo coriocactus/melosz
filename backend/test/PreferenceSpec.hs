@@ -25,8 +25,8 @@ spec = describe "Preference" $ do
 
       setupTestUserState :: Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserId -> AppState
       setupTestUserState options prefs viols uncomp user =
-          let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
-              uState = mkUserState initialGlicko prefs viols uncomp
+          let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
+              uState = mkUserState glicko prefs viols uncomp
           in mkAppState options [(user, uState)]
 
   describe "isPreferred" $ do
@@ -180,7 +180,7 @@ spec = describe "Preference" $ do
   describe "calculateAgreementScore" $ do
     let setupGlickoState :: Set.Set Option -> Map.Map OptionId Double -> Relation -> UserId -> AppState
         setupGlickoState options ratingsMap prefs user =
-          let glickoMap = Map.map (\r -> initialGlickoPlayer { glickoRating = r }) ratingsMap
+          let glickoMap = Map.map (\r -> initialGlicko { glickoRating = r }) ratingsMap
               uncomp = getAllOptionPairsSet options Set.\\ Set.map (\(w,l) -> makeCanonicalPair w l) prefs
               uState = mkUserState glickoMap prefs Set.empty uncomp
           in mkAppState options [(user, uState)]
@@ -236,27 +236,27 @@ spec = describe "Preference" $ do
        scoreDA `shouldBeApprox` 0.0
 
   describe "restoreUserState" $ do
-    it "correctly restores preferences and resets Glicko players" $ do
+    it "correctly restores preferences and resets glickos" $ do
       let opts   = Set.fromList [optA, optB, optC]
           prefs  = Set.fromList [(optA, optB), (optB, optC)]
-          initialPlayerMap = Map.fromList
-              [ (optionId optA, initialGlickoPlayer { glickoRating = 1600})
-              , (optionId optB, initialGlickoPlayer { glickoRating = 1400})
-              , (optionId optC, initialGlickoPlayer { glickoRating = 1550})
+          initialGlickoMap = Map.fromList
+              [ (optionId optA, initialGlicko { glickoRating = 1600})
+              , (optionId optB, initialGlicko { glickoRating = 1400})
+              , (optionId optC, initialGlicko { glickoRating = 1550})
               ]
           initialUncomp = Set.singleton (makeCanonicalPair optA optC)
           startState = setupTestUserState opts Set.empty Set.empty initialUncomp testUser1
-          startStateMod = startState { stateUserStates = Map.adjust (\us -> us { userGlickoPlayers = initialPlayerMap}) testUser1 (stateUserStates startState) }
+          startStateMod = startState { stateUserStates = Map.adjust (\us -> us { userGlickos = initialGlickoMap}) testUser1 (stateUserStates startState) }
 
           expectedUncompared = Set.singleton (makeCanonicalPair optA optC)
-          expectedGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId opts)
+          expectedGlicko = Map.fromSet (const initialGlicko) (Set.map optionId opts)
 
       finalState <- execAppTest (restoreUserState testUser1 prefs) (Just defaultTestConfig) startStateMod
 
       case Map.lookup testUser1 (stateUserStates finalState) of
         Nothing -> expectationFailure "UserState not found after restore"
         Just us -> do
-          userGlickoPlayers us `shouldBe` expectedGlicko
+          userGlickos us `shouldBe` expectedGlicko
           userPreferences us `shouldBe` prefs
           userUncomparedPairs us `shouldBe` expectedUncompared
           userViolations us `shouldBe` Set.empty

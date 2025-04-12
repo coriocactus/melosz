@@ -20,7 +20,7 @@ setupOption newOption = do
       let updatedOptions = Set.insert newOption (stateOptions s)
           updateUserState us = us
               { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us)
-              , userGlickoPlayers = Map.insert newOptionId initialGlickoPlayer (userGlickoPlayers us)
+              , userGlickos = Map.insert newOptionId initialGlicko (userGlickos us)
               }
           updatedUserStates = Map.map updateUserState (stateUserStates s)
       in s { stateOptions = updatedOptions, stateUserStates = updatedUserStates }

@@ -59,25 +59,25 @@ calculateAgreementScore userId _eloRatingsList = do
     then pure 1.0
     else do
       let optionIdsInPrefs = Set.unions $ map (\(o1, o2) -> Set.fromList [optionId o1, optionId o2]) comparedPairs
-      glickoPlayersMap <- fmap Map.fromList $ Monad.forM (Set.toList optionIdsInPrefs) $ \oid -> do
-          player <- getGlickoPlayer' userId oid
-          pure (oid, player)
+      glickosMap <- fmap Map.fromList $ Monad.forM (Set.toList optionIdsInPrefs) $ \oid -> do
+          glicko <- getGlicko' userId oid
+          pure (oid, glicko)
 
-      let (concordant, discordant) = foldl (countAgreement glickoPlayersMap) (0, 0) comparedPairs
+      let (concordant, discordant) = foldl (countAgreement glickosMap) (0, 0) comparedPairs
       let tau = if totalCompared == 0 then 0 else (fromIntegral concordant - fromIntegral discordant) / fromIntegral totalCompared
       pure $ (tau + 1.0) / 2.0
   where
-    countAgreement :: Map.Map OptionId GlickoPlayer -> (Int, Int) -> (Option, Option) -> (Int, Int)
+    countAgreement :: Map.Map OptionId Glicko -> (Int, Int) -> (Option, Option) -> (Int, Int)
     countAgreement glickoMap (conc, disc) (preferredOption, nonPreferredOption) =
       let prefId = optionId preferredOption
           nonPrefId = optionId nonPreferredOption
-          lookupPlayer oid = Map.findWithDefault initialGlickoPlayer oid glickoMap
+          lookupGlicko oid = Map.findWithDefault initialGlicko oid glickoMap
 
-          playerPref = lookupPlayer prefId
-          playerNonPref = lookupPlayer nonPrefId
+          glickoPref = lookupGlicko prefId
+          glickoNonPref = lookupGlicko nonPrefId
 
-          ratingPref = glickoRating playerPref
-          ratingNonPref = glickoRating playerNonPref
+          ratingPref = glickoRating glickoPref
+          ratingNonPref = glickoRating glickoNonPref
       in
       if ratingPref > ratingNonPref then (conc + 1, disc)
       else if ratingPref < ratingNonPref then (conc, disc + 1)
@@ -154,10 +154,10 @@ restoreUserState userId restoredPrefs = do
       newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
 
       allOptionIds = Set.map optionId optionsSet
-      initialPlayers = Map.fromSet (const initialGlickoPlayer) allOptionIds
+      initialGlickos = Map.fromSet (const initialGlicko) allOptionIds
 
       newUserState = UserState
-        { userGlickoPlayers = initialPlayers
+        { userGlickos = initialGlickos
         , userPreferences = restoredPrefs
         , userViolations = newUserViolations
         , userUncomparedPairs = newUserUncomparedPairs
@@ -166,8 +166,8 @@ restoreUserState userId restoredPrefs = do
   modifyStateRef_ $ \s ->
       s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }
 
-restoreUserStateWithPlayers :: UserId -> Relation -> Map.Map OptionId GlickoPlayer -> App ()
-restoreUserStateWithPlayers userId restoredPrefs restoredPlayers = do
+restoreUserStateWithGlickos :: UserId -> Relation -> Map.Map OptionId Glicko -> App ()
+restoreUserStateWithGlickos userId restoredPrefs restoredGlickos = do
   optionsSet <- getOptions
   let allPossiblePairs = getAllOptionPairsSet optionsSet
       comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
@@ -175,11 +175,11 @@ restoreUserStateWithPlayers userId restoredPrefs restoredPlayers = do
       newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
 
       allOptionIds = Set.map optionId optionsSet
-      finalPlayers = Map.union restoredPlayers (Map.fromSet (const initialGlickoPlayer) allOptionIds)
+      finalGlickos = Map.union restoredGlickos (Map.fromSet (const initialGlicko) allOptionIds)
 
 
       newUserState = UserState
-        { userGlickoPlayers = finalPlayers
+        { userGlickos = finalGlickos
         , userPreferences = restoredPrefs
         , userViolations = newUserViolations
         , userUncomparedPairs = newUserUncomparedPairs

@@ -10,7 +10,7 @@ import Types
 import AppState
 import Glicko2
 
-infoValue :: GlickoPlayer -> GlickoPlayer -> Double
+infoValue :: Glicko -> Glicko -> Double
 infoValue p1 p2 = uncertaintyFactor * e * (1 - e) * (g_rd2 ** 2)
   where
     r1 = glickoRating p1
@@ -21,10 +21,10 @@ infoValue p1 p2 = uncertaintyFactor * e * (1 - e) * (g_rd2 ** 2)
     g_rd2 = g rd2
     uncertaintyFactor = rd1 * rd2
 
-getPairPlayers :: UserId -> (Option, Option) -> App (Maybe (GlickoPlayer, GlickoPlayer))
-getPairPlayers uid (opt1, opt2) = do
-  mp1 <- getGlickoPlayer uid (optionId opt1)
-  mp2 <- getGlickoPlayer uid (optionId opt2)
+getPairGlickos :: UserId -> (Option, Option) -> App (Maybe (Glicko, Glicko))
+getPairGlickos uid (opt1, opt2) = do
+  mp1 <- getGlicko uid (optionId opt1)
+  mp2 <- getGlicko uid (optionId opt2)
   pure $ do
     p1 <- mp1
     p2 <- mp2
@@ -41,8 +41,8 @@ selectMaxInfoPair uid pairs = do
   where
     calculatePairValue :: (Option, Option) -> App (Maybe ((Option, Option), Double))
     calculatePairValue pair = do
-      mPlayers <- getPairPlayers uid pair
-      case mPlayers of
+      mGlickos <- getPairGlickos uid pair
+      case mGlickos of
         Nothing -> pure Nothing
         Just (p1, p2) -> pure $ Just (pair, infoValue p1 p2)
 

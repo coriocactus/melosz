@@ -17,15 +17,15 @@ spec = describe "Rating (Glicko-2)" $ do
   let testConfig = defaultTestConfig
       testOpts = Set.fromList [optA, optB, optC]
 
-      mkInitialState :: Map.Map OptionId GlickoPlayer -> AppState
+      mkInitialState :: Map.Map OptionId Glicko -> AppState
       mkInitialState specificGlickoMap =
           let initialUncompared = getAllOptionPairsSet testOpts
-              fullGlickoMap = Map.union specificGlickoMap (Map.fromSet (const initialGlickoPlayer) (Set.map optionId testOpts))
+              fullGlickoMap = Map.union specificGlickoMap (Map.fromSet (const initialGlicko) (Set.map optionId testOpts))
               uState = mkUserState fullGlickoMap Set.empty Set.empty initialUncompared
           in mkAppState testOpts [(testUser1, uState)]
 
-      pA = initialGlickoPlayer { glickoRating = 1600, glickoDeviation = 200, glickoVolatility = 0.05 }
-      pB = initialGlickoPlayer { glickoRating = 1450, glickoDeviation = 150, glickoVolatility = 0.06 }
+      pA = initialGlicko { glickoRating = 1600, glickoDeviation = 200, glickoVolatility = 0.05 }
+      pB = initialGlicko { glickoRating = 1450, glickoDeviation = 150, glickoVolatility = 0.06 }
 
   describe "getUserRating" $ do
     it "returns initial Glicko rating for unknown user/option" $ do
@@ -45,15 +45,15 @@ spec = describe "Rating (Glicko-2)" $ do
       Set.fromList (map fst ratings) `shouldBe` testOpts
 
   describe "updateRatings" $ do
-    it "updates both options' Glicko players after a match (Win for optA)" $ do
+    it "updates both options' glickos after a match (Win for optA)" $ do
       let startState = mkInitialState (Map.fromList [(optionId optA, pA), (optionId optB, pB)])
           pA_initial = pA
           pB_initial = pB
 
       finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfig) startState
-      let finalPlayers = userGlickoPlayers $ stateUserStates finalState Map.! testUser1
-          pA_final = finalPlayers Map.! optionId optA
-          pB_final = finalPlayers Map.! optionId optB
+      let finalGlickos = userGlickos $ stateUserStates finalState Map.! testUser1
+          pA_final = finalGlickos Map.! optionId optA
+          pB_final = finalGlickos Map.! optionId optB
 
       glickoRating pA_final `shouldSatisfy` (> glickoRating pA_initial)
       glickoRating pB_final `shouldSatisfy` (< glickoRating pB_initial)
@@ -63,15 +63,15 @@ spec = describe "Rating (Glicko-2)" $ do
       glickoVolatility pA_final `shouldSatisfy` (>= 0)
       glickoVolatility pB_final `shouldSatisfy` (>= 0)
 
-    it "updates both options' Glicko players after a match (Loss for optA)" $ do
+    it "updates both options' glickos after a match (Loss for optA)" $ do
       let startState = mkInitialState (Map.fromList [(optionId optA, pA), (optionId optB, pB)])
           pA_initial = pA
           pB_initial = pB
 
       finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfig) startState
-      let finalPlayers = userGlickoPlayers $ stateUserStates finalState Map.! testUser1
-          pA_final = finalPlayers Map.! optionId optA
-          pB_final = finalPlayers Map.! optionId optB
+      let finalGlickos = userGlickos $ stateUserStates finalState Map.! testUser1
+          pA_final = finalGlickos Map.! optionId optA
+          pB_final = finalGlickos Map.! optionId optB
 
       glickoRating pA_final `shouldSatisfy` (< glickoRating pA_initial)
       glickoRating pB_final `shouldSatisfy` (> glickoRating pB_initial)

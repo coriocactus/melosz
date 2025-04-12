@@ -81,9 +81,9 @@ updateRD rd_star d_squared_inv =
   sqrt $ 1 / (1 / (rd_star * rd_star) + d_squared_inv)
 
 -- Calculate new Glicko-2 parameters after one match (simplified per-match update)
--- Takes the two players, the outcome for player 1, and system tau
--- Returns the updated (player1, player2)
-calculateNewRatings :: GlickoPlayer -> GlickoPlayer -> MatchResult -> Double -> (GlickoPlayer, GlickoPlayer)
+-- Takes the two glickos, the outcome for glicko 1, and system tau
+-- Returns the updated (glicko1, glicko2)
+calculateNewRatings :: Glicko -> Glicko -> MatchResult -> Double -> (Glicko, Glicko)
 calculateNewRatings p1 p2 result1 tau =
   let r1 = glickoRating p1
       rd1 = glickoDeviation p1
@@ -94,22 +94,22 @@ calculateNewRatings p1 p2 result1 tau =
       sigma2 = glickoVolatility p2
 
       score1 = matchResultToScore result1
-      score2 = 1.0 - score1 -- Score for player 2
+      score2 = 1.0 - score1 -- Score for glicko 2
 
-      -- Calculations FOR Player 1 (opponent is Player 2)
+      -- Calculations FOR Glicko 1 (opponent is Glicko 2)
       g_rd2 = g rd2
       e1 = expectedOutcome r1 r2 rd2
-      -- d^2_inv for player 1 = q^2 * g(RD2)^2 * E1 * (1 - E1)
+      -- d^2_inv for glicko 1 = q^2 * g(RD2)^2 * E1 * (1 - E1)
       d_squared_inv1 = _q * _q * g_rd2 * g_rd2 * e1 * (1 - e1)
       -- Estimated improvement delta1 = (1/d^2_inv1) * g(RD2)*(s1 - E1)
       delta1 = (1.0 / d_squared_inv1) * g_rd2 * (score1 - e1)
       -- Estimated variance v1 = 1/d^2_inv1
       v1 = 1.0 / d_squared_inv1
 
-      -- Calculations FOR Player 2 (opponent is Player 1)
+      -- Calculations FOR Glicko 2 (opponent is Glicko 1)
       g_rd1 = g rd1
       e2 = expectedOutcome r2 r1 rd1
-      -- d^2_inv for player 2 = q^2 * g(RD1)^2 * E2 * (1 - E2)
+      -- d^2_inv for glicko 2 = q^2 * g(RD1)^2 * E2 * (1 - E2)
       d_squared_inv2 = _q * _q * g_rd1 * g_rd1 * e2 * (1 - e2)
       -- Estimated improvement delta2 = (1/d^2_inv2) * g(RD1)*(s2 - E2)
       delta2 = (1.0 / d_squared_inv2) * g_rd1 * (score2 - e2)
@@ -133,8 +133,8 @@ calculateNewRatings p1 p2 result1 tau =
       rd2_prime = updateRD rd2_star d_squared_inv2
 
 
-      updated_p1 = GlickoPlayer (clampRating r1_prime) (clampRD rd1_prime) sigma1_prime
-      updated_p2 = GlickoPlayer (clampRating r2_prime) (clampRD rd2_prime) sigma2_prime
+      updated_p1 = Glicko (clampRating r1_prime) (clampRD rd1_prime) sigma1_prime
+      updated_p2 = Glicko (clampRating r2_prime) (clampRD rd2_prime) sigma2_prime
 
   in (updated_p1, updated_p2)
 
@@ -145,8 +145,8 @@ clampRD :: Double -> Double
 clampRD rd = max 30 (min 350 rd)
 
 -- normalization
-glickoToDisplay :: GlickoPlayer -> GlickoPlayer
-glickoToDisplay player = GlickoPlayer
-  (173.7178 * (glickoRating player - 1500) / 400 + 1500)
-  (173.7178 * glickoDeviation player / 400)
-  (glickoVolatility player)
+glickoToDisplay :: Glicko -> Glicko
+glickoToDisplay glicko = Glicko
+  (173.7178 * (glickoRating glicko - 1500) / 400 + 1500)
+  (173.7178 * glickoDeviation glicko / 400)
+  (glickoVolatility glicko)

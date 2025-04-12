@@ -40,10 +40,10 @@ spec = describe "AppState" $ do
       Set.size (getAllOptionPairsSet options) `shouldBe` expectedCount
 
   describe "initialUserState" $ do
-    it "initializes with default GlickoPlayers, empty prefs/violations" $ do
+    it "initializes with default Glickos, empty prefs/violations" $ do
       let uState = initialUserState allTestOptionsSet
-          expectedGlickoMap = Map.fromSet (const initialGlickoPlayer) (Set.map optionId allTestOptionsSet)
-      userGlickoPlayers uState `shouldBe` expectedGlickoMap
+          expectedGlickoMap = Map.fromSet (const initialGlicko) (Set.map optionId allTestOptionsSet)
+      userGlickos uState `shouldBe` expectedGlickoMap
       userPreferences uState `shouldBe` Set.empty
       userViolations uState `shouldBe` Set.empty
 
@@ -61,15 +61,15 @@ spec = describe "AppState" $ do
       users <- evalAppTest getUsers Nothing state
       users `shouldBe` Set.fromList [testUser1, testUser2]
 
-  describe "getGlickoPlayer'" $ do
-    it "returns initial player for unknown user/option" $ do
-      player <- evalAppTest (getGlickoPlayer' testUser1 (optionId optA)) Nothing initialState
-      player `shouldBe` initialGlickoPlayer
+  describe "getGlicko'" $ do
+    it "returns initial glicko for unknown user/option" $ do
+      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) Nothing initialState
+      glicko `shouldBe` initialGlicko
 
-    it "returns specific player when set in user state" $ do
-      let customPlayer = initialGlickoPlayer { glickoRating = 1600 }
-          glickoMap = Map.singleton (optionId optA) customPlayer
-          uState = (simpleUserState allTestOptionsSet) { userGlickoPlayers = glickoMap }
+    it "returns specific glicko when set in user state" $ do
+      let customGlicko = initialGlicko { glickoRating = 1600 }
+          glickoMap = Map.singleton (optionId optA) customGlicko
+          uState = (simpleUserState allTestOptionsSet) { userGlickos = glickoMap }
           state = mkAppState allTestOptionsSet [(testUser1, uState)]
-      player <- evalAppTest (getGlickoPlayer' testUser1 (optionId optA)) Nothing state
-      player `shouldBe` customPlayer
+      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) Nothing state
+      glicko `shouldBe` customGlicko

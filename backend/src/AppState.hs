@@ -42,7 +42,7 @@ initialState = AppState
 -- === User State ===
 
 data UserState = UserState
-  { userGlickoPlayers :: Map.Map OptionId GlickoPlayer
+  { userGlickos :: Map.Map OptionId Glicko
   , userPreferences :: Relation
   , userViolations :: Set.Set (Option, Option, Option)
   , userUncomparedPairs :: Set.Set (Option, Option)
@@ -50,7 +50,7 @@ data UserState = UserState
 
 initialUserState :: Set.Set Option -> UserState
 initialUserState options = UserState
-  { userGlickoPlayers = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
+  { userGlickos = Map.fromSet (const initialGlicko) (Set.map optionId options)
   , userPreferences = Set.empty
   , userViolations = Set.empty
   , userUncomparedPairs = getAllOptionPairsSet options
@@ -75,13 +75,13 @@ getUserState userId = Map.lookup userId . stateUserStates <$> readCurrentState
 getUserState' :: UserId -> App UserState
 getUserState' userId = Maybe.fromMaybe (initialUserState Set.empty) <$> getUserState userId
 
-getGlickoPlayer :: UserId -> OptionId -> App (Maybe GlickoPlayer)
-getGlickoPlayer userId oid = do
+getGlicko :: UserId -> OptionId -> App (Maybe Glicko)
+getGlicko userId oid = do
   mUserState <- getUserState userId
-  pure $ mUserState >>= Map.lookup oid . userGlickoPlayers
+  pure $ mUserState >>= Map.lookup oid . userGlickos
 
-getGlickoPlayer' :: UserId -> OptionId -> App GlickoPlayer
-getGlickoPlayer' userId oid = Maybe.fromMaybe initialGlickoPlayer <$> getGlickoPlayer userId oid
+getGlicko' :: UserId -> OptionId -> App Glicko
+getGlicko' userId oid = Maybe.fromMaybe initialGlicko <$> getGlicko userId oid
 
 getPreferencesForUser :: UserId -> App Relation
 getPreferencesForUser userId = userPreferences <$> getUserState' userId
