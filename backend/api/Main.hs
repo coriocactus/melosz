@@ -48,7 +48,7 @@ launch port = do
 
   pool <- mkRedisPool
 
-  putStrLn $ "<| === === === Running server === === === |>"
+  putStrLn $ "=== === === Running melosz backend === === ==="
   putStrLn $ "Listening: http://localhost:" ++ show port
 
   Warp.run port (application initialConfig pool)

@@ -73,5 +73,5 @@ const server = serve({
   },
 });
 
-console.log(`[${BUN_ENV}] === === === Running server === === ===`);
+console.log(`[${BUN_ENV}] === === === Running melosz frontend === === ===`);
 console.log(`[${BUN_ENV}] Listening: http://${server.hostname}:${server.port}`);

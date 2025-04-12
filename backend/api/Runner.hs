@@ -32,6 +32,6 @@ runApp cfg action = do
 runAppStrict :: AppConfig -> App a -> Handler a
 runAppStrict cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg
 
-runRedis :: Pool.Pool Redis.Connection -> Redis.Redis a -> Handler a
-runRedis pool redisAction = MonadIO.liftIO $
+execRedis :: Pool.Pool Redis.Connection -> Redis.Redis a -> Handler a
+execRedis pool redisAction = MonadIO.liftIO $
   Pool.withResource pool $ \conn -> Redis.runRedis conn redisAction

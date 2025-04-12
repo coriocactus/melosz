@@ -98,11 +98,11 @@ authServant pool = emptyServer
       case validateToken now (authPayloadToken payload) tokenState of
         Right () -> do
           let email = TextEnc.encodeUtf8 $ authEmail payload
-          eitherEmailExists <- runRedis pool $ Redis.sismember "users" email
+          eitherEmailExists <- execRedis pool $ Redis.sismember "users" email
           case eitherEmailExists of
             Right True -> do
               let token = generateToken now [ "123", "234", "345", email ]
-              _ <- runRedis pool $ Redis.hset "tokens" (TextEnc.encodeUtf8 token) email
+              _ <- execRedis pool $ Redis.hset "tokens" (TextEnc.encodeUtf8 token) email
               MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:8080/auth/" <> token)
               run $ Right NoContent
             Right False -> do
@@ -122,14 +122,14 @@ authServant pool = emptyServer
       case validateToken now (authPayloadToken payload) tokenState of
         Right () -> do
           let email = TextEnc.encodeUtf8 $ authEmail payload
-          eitherEmailExists <- runRedis pool $ Redis.sismember "users" email
+          eitherEmailExists <- execRedis pool $ Redis.sismember "users" email
           case eitherEmailExists of
             Right True -> do
               MonadIO.liftIO $ putStrLn $ "Email already registered: " ++ show email
               run $ Left (err409 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Email already registered" :: Text.Text)]) })
             Right False -> do
               let token = generateToken now [ "123", "234", "345", email ]
-              _ <- runRedis pool $ Redis.hset "tokens" (TextEnc.encodeUtf8 token) email
+              _ <- execRedis pool $ Redis.hset "tokens" (TextEnc.encodeUtf8 token) email
               MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:8080/auth/" <> token)
               run $ Right NoContent
             _ -> do
@@ -142,20 +142,20 @@ authServant pool = emptyServer
     handleGetAuth :: Token -> Handler AuthHash
     handleGetAuth token = do
       now <- MonadIO.liftIO POSIXTime.getPOSIXTime
-      maybeEmail <- runRedis pool $ Redis.hget "tokens" (TextEnc.encodeUtf8 token)
+      maybeEmail <- execRedis pool $ Redis.hget "tokens" (TextEnc.encodeUtf8 token)
       case maybeEmail of
         Right (Just email) -> do
-          _ <- runRedis pool $ Redis.hdel "tokens" [TextEnc.encodeUtf8 token]
+          _ <- execRedis pool $ Redis.hdel "tokens" [TextEnc.encodeUtf8 token]
           let tokenState = ["123", "234", "345", email]
           case validateToken now token tokenState of
             Right () -> do
               nonce <- BS.pack <$> Monad.replicateM 32 (Random.randomRIO (0 :: Word.Word8, 255))
               let hash = generateAuthHash now nonce $ TextEnc.decodeUtf8 email
-              eitherEmailExists <- runRedis pool $ Redis.sismember "users" email
+              eitherEmailExists <- execRedis pool $ Redis.sismember "users" email
               case eitherEmailExists of
                 Right True -> do
                   MonadIO.liftIO $ putStrLn $ "Login: " ++ show email
-                  _ <- runRedis pool $ Redis.multiExec $ do
+                  _ <- execRedis pool $ Redis.multiExec $ do
                     _ <- Redis.hset "hashes" (TextEnc.encodeUtf8 hash) email
                     _ <- Redis.hset email "hash" (TextEnc.encodeUtf8 hash)
                     _ <- Redis.hset email "accessed_on" (BSU.fromString $ show now)
@@ -163,7 +163,7 @@ authServant pool = emptyServer
                   run $ Right $ AuthHash { authHash = hash }
                 Right False -> do
                   MonadIO.liftIO $ putStrLn $ "Registration: " ++ show email
-                  _ <- runRedis pool $ Redis.multiExec $ do
+                  _ <- execRedis pool $ Redis.multiExec $ do
                     _ <- Redis.sadd "users" [email]
                     _ <- Redis.hset "hashes" (TextEnc.encodeUtf8 hash) email
                     _ <- Redis.hset email "hash" (TextEnc.encodeUtf8 hash)
