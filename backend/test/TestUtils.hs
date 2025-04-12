@@ -17,6 +17,7 @@ defaultTestConfig :: AppConfig
 defaultTestConfig = AppConfig
   { configSystemTau = 0.5
   , configStateRef = error "configStateRef should be set by test runner"
+  , configOptions = allTestOptionsSet
   }
 
 evalAppTest :: App a -> Maybe AppConfig -> AppState -> IO a
@@ -77,27 +78,22 @@ allTestOptionsSet :: Set.Set Option
 allTestOptionsSet = Set.fromList allTestOptions
 
 mkAppState :: Set.Set Option -> [(UserId, UserState)] -> AppState
-mkAppState options userStatesList = initialState
-  { stateOptions = options
-  , stateUserStates = Map.fromList userStatesList
+mkAppState _options userStatesList = initialState -- Options arg ignored
+  { stateUserStates = Map.fromList userStatesList
   }
 
-mkUserState :: Map.Map OptionId Glicko -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
-mkUserState glickoMap prefs violations uncompared = UserState
+mkUserState :: Map.Map OptionId Glicko -> UserState
+mkUserState glickoMap = UserState
   { userGlickos = glickoMap
-  , userPreferences = prefs
-  , userViolations = violations
-  , userUncomparedPairs = uncompared
   }
 
-setupStateSingleUser :: UserId -> Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> AppState
-setupStateSingleUser userId options prefs violations uncompared =
+setupStateSingleUser :: UserId -> Set.Set Option -> AppState
+setupStateSingleUser userId options =
   let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
-      uState = mkUserState glicko prefs violations uncompared
+      uState = mkUserState glicko
   in mkAppState options [(userId, uState)]
 
 simpleUserState :: Set.Set Option -> UserState
 simpleUserState options =
   let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
-      initialUncompared = getAllOptionPairsSet options
-  in mkUserState glicko Set.empty Set.empty initialUncompared
+  in mkUserState glicko

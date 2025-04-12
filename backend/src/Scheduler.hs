@@ -1,6 +1,7 @@
 module Scheduler where
 
 import qualified Control.Monad as Monad
+import qualified Control.Monad.Reader as MonadReader
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
@@ -53,11 +54,11 @@ selectRandomElementList xs = do
 
 getNextComparisonPair :: UserId -> App (Maybe (Option, Option))
 getNextComparisonPair uid = do
-  optionsSet <- getOptions
-  mUncomparedMaxInfo <- selectMaxInfoPair uid (getAllOptionPairsSet optionsSet)
-  case mUncomparedMaxInfo of
-    Just pair -> pure $ Just pair
-    Nothing -> getNextComparisonPair uid
+  optionsSet <- MonadReader.asks configOptions
+  let allPairs = getAllOptionPairsSet optionsSet
+  -- Simple strategy: select the pair with maximum information value from *all* possible pairs
+  -- Note: This doesn't track *which* pairs have been compared recently.
+  selectMaxInfoPair uid allPairs
 
 mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
 mapMaybeM f = fmap Maybe.catMaybes . Monad.mapM f

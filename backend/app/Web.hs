@@ -29,7 +29,6 @@ import Servant ((:>), (:<|>)(..))
 import Types
 import AppState
 import Marshal
-import Preference
 import Rating
 import Scheduler
 
@@ -41,23 +40,28 @@ main = runWeb 8080
 runWeb :: Int -> IO ()
 runWeb port = do
   let appToRun :: App AppConfig
-      appToRun = colourfulScaffold
+      appToRun = setupColourfulUser >> MonadReader.ask
   putStrLn $ "Starting server on port " ++ show port
   runner port appToRun
 
 runner :: Int -> App AppConfig -> IO ()
 runner port app = do
+  let initialOptions = colourfulOptions
+      user = "coriocactus"
+
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
-  let config = AppConfig
+  let initialConfig = AppConfig
         { configSystemTau = 0.5
         , configStateRef = initialStateRef
+        , configOptions = initialOptions
         }
-  initialConfig <- MonadReader.runReaderT app config
-  Warp.run port (application initialConfig)
 
-colourfulScaffold :: App AppConfig
-colourfulScaffold = do
-  let options =
+  finalConfig <- MonadReader.runReaderT app initialConfig
+  Warp.run port (application finalConfig)
+
+
+colourfulOptions :: Set.Set Option
+colourfulOptions = Set.fromList
         [ createOption "red" "Red" ""
         , createOption "orange" "Orange" ""
         , createOption "yellow" "Yellow" ""
@@ -68,12 +72,11 @@ colourfulScaffold = do
         , createOption "cyan" "Cyan" ""
         , createOption "magenta" "Magenta" ""
         ]
+
+setupColourfulUser :: App ()
+setupColourfulUser = do
   let user = "coriocactus"
-
-  setupOptions options
   setupUser user
-
-  MonadReader.ask
 
 -- webserver
 
@@ -132,10 +135,7 @@ throwRedirect link =
     location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ (Servant.uriPath $ Servant.linkURI link)
 
 data HtmlComparisonStatus = HtmlComparisonStatus
-  { htmlStatusProgress :: (Int, Int, Double)
-  , htmlStatusAgreement :: Double
-  , htmlStatusConsistency :: Double
-  , htmlStatusViolations :: [(Option, Option, Option)]
+  { htmlStatusConsistency :: Double
   , htmlStatusIsComplete :: Bool
   }
 
@@ -167,13 +167,11 @@ compareServant cfg = Servant.emptyServer
     fetchAndRenderComparePage :: UserId -> App H.Html
     fetchAndRenderComparePage userId = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
-      optionsList <- Set.toList <$> getOptions
+      optionsList <- Set.toList <$> MonadReader.asks configOptions
       currentRatings <- getUserRatings userId optionsList
-      violationsSet <- getViolationsForUser userId
       mPair <- getNextComparisonPair userId
-      statusData <- gatherHtmlStatusData userId currentRatings violationsSet
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
-      pure $ mkComparePage userId mPair currentRatings statusData
+      pure $ mkComparePage userId mPair currentRatings
 
     handleGetCompare :: Text.Text -> Servant.Handler H.Html
     handleGetCompare userIdText = do
@@ -204,7 +202,6 @@ compareServant cfg = Servant.emptyServer
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show userId ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
-            recordComparison userId winnerOpt loserOpt Win
             updateRatings userId winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
           _ -> MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
@@ -215,23 +212,17 @@ compareServant cfg = Servant.emptyServer
       MonadIO.liftIO $ putStrLn $ "Redirecting to: " ++ Text.unpack redirectUrlPath
       Servant.throwError Servant.err303 { Servant.errHeaders = [("Location", TextEnc.encodeUtf8 redirectUrlPath)] }
 
-mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> HtmlComparisonStatus -> H.Html
-mkComparePage userId mPair rankings status =
+mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> H.Html
+mkComparePage userId mPair rankings =
   pageLayout ("Comparison for " <> TextEnc.decodeUtf8 (unUserId userId)) $ do
     case mPair of
       Just (opt1, opt2) -> mkComparisonSection userId opt1 opt2
-      Nothing ->
-        case htmlStatusIsComplete status of
-          True -> H.div H.! A.class_ "completion-message" $ "Ranking complete and consistent!"
-          False -> H.div H.! A.class_ "completion-message" $ "No more pairs to compare based on current strategy, but violations might exist."
+      Nothing -> H.div H.! A.class_ "completion-message" $ "No more pairs to compare based on current strategy."
 
     H.div H.! A.class_ "results-grid" $ do
       H.div H.! A.class_ "rankings-section" $ do
         H.h2 "Current Rankings"
         mkRankingsTable rankings
-      H.div H.! A.class_ "status-section" $ do
-        H.h2 "Session Status"
-        mkStatusSection status
 
 mkComparisonSection :: UserId -> Option -> Option -> H.Html
 mkComparisonSection userId opt1 opt2 = do
@@ -272,62 +263,10 @@ mkRankingsTable sortedRatings = H.table $ do
       H.td $ H.toHtml (BSC.unpack $ optionName opt)
       H.td $ H.toHtml (Printf.printf "%.1f" rating :: String)
 
-mkStatusSection :: HtmlComparisonStatus -> H.Html
-mkStatusSection status = do
-  let (completed, total, percent) = htmlStatusProgress status
-      progressStr = Printf.printf "Progress: %d/%d pairs compared (%.1f%%)" completed total percent :: String
-      agreementStr = Printf.printf "Agreement (vs Glicko): %.1f%%" (htmlStatusAgreement status) :: String
-      consistencyStr = Printf.printf "Consistency (Transitivity): %.1f%%" (htmlStatusConsistency status) :: String
-
-  H.p $ H.toHtml progressStr
-  H.p $ H.toHtml agreementStr
-  H.p $ H.toHtml consistencyStr
-
-  if null (htmlStatusViolations status)
-    then H.p "No transitivity violations."
-    else do
-      let violationsCount = length $ htmlStatusViolations status
-          violationsStr = Printf.printf "Detected %d transitivity violation(s):" violationsCount :: String
-      H.p $ H.toHtml violationsStr
-      H.ul H.! A.class_ "violation-list" $ do
-        mapM_ (H.li . H.toHtml . formatViolationHtml) (take 5 $ htmlStatusViolations status)
-        if violationsCount > 5
-          then H.li $ H.toHtml ("...and " ++ show (violationsCount - 5) ++ " more.")
-          else pure ()
-
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do
-  optionsSet <- getOptions
+  optionsSet <- MonadReader.asks configOptions
   pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)
-
-formatViolationHtml :: (Option, Option, Option) -> String
-formatViolationHtml (a, c, b) =
-  Printf.printf "Cycle involving %s, %s, %s"
-    (BSC.unpack $ optionName a)
-    (BSC.unpack $ optionName b)
-    (BSC.unpack $ optionName c)
-
-gatherHtmlStatusData :: UserId -> [(Option, Double)] -> Set.Set (Option, Option, Option) -> App HtmlComparisonStatus
-gatherHtmlStatusData uid ratings violationsSet = do
-  optionsCount <- Set.size <$> getOptions
-  uncomparedSet <- getUncomparedPairsForUser uid
-
-  let totalPossiblePairs = if optionsCount < 2 then 0 else optionsCount * (optionsCount - 1) `div` 2
-      completedPairs = totalPossiblePairs - Set.size uncomparedSet
-      progressPercent = if totalPossiblePairs == 0 then 100.0 else (fromIntegral completedPairs * 100.0 / fromIntegral totalPossiblePairs :: Double)
-      violationsList = Set.toList violationsSet
-
-  agreementScore <- calculateAgreementScore uid ratings
-  transitivityScore <- calculateTransitivityScore uid
-  isComplete <- checkIfComplete uid
-
-  pure $ HtmlComparisonStatus
-    { htmlStatusProgress = (completedPairs, totalPossiblePairs, progressPercent)
-    , htmlStatusAgreement = agreementScore * 100.0
-    , htmlStatusConsistency = transitivityScore * 100.0
-    , htmlStatusViolations = violationsList
-    , htmlStatusIsComplete = isComplete && Set.null violationsSet
-    }
 
 -- blaze templates
 
@@ -363,10 +302,7 @@ styleSheet = H.toHtml (Text.unlines
   , "th { background-color: #f2f2f2; font-weight: bold; }"
   , "tr:nth-child(even) { background-color: #f9f9f9; }"
   , "td:first-child { text-align: center; font-weight: bold; }"
-  , ".status-section, .rankings-section { border: 1px solid #ddd; padding: 1.5em; background-color: #fdfdfd; border-radius: 5px; }"
-  , ".status-section p { margin-bottom: 0.8em; line-height: 1.4; }"
-  , ".violation-list { padding-left: 20px; margin-top: 0.5em; }"
-  , ".violation-list li { color: #c00; margin-bottom: 0.5em; font-size: 0.9em; }"
+  , ".rankings-section { border: 1px solid #ddd; padding: 1.5em; background-color: #fdfdfd; border-radius: 5px; }"
   , ".completion-message { color: #080; font-weight: bold; text-align: center; padding: 2em; background-color: #e8f8e8; border: 1px solid #b8d8b8; border-radius: 5px; margin-top: 2em; }"
   , "a { color: #007bff; text-decoration: none; }"
   , "a:hover { text-decoration: underline; }"

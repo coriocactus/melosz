@@ -14,23 +14,31 @@ import Types
 import Ranking
 
 import TestUtils
-import TestArbs
+
+optA', optB', optC', optD', optE' :: Option
+optA' = optA
+optB' = optB
+optC' = optC
+optD' = optD
+optE' = optE
 
 oidA, oidB, oidC, oidD, oidE :: OptionId
-oidA = optionId optA
-oidB = optionId optB
-oidC = optionId optC
-oidD = optionId optD
-oidE = optionId optE
+oidA = optionId optA'
+oidB = optionId optB'
+oidC = optionId optC'
+oidD = optionId optD'
+oidE = optionId optE'
 
-allOptsSet :: Set.Set OptionId
-allOptsSet = Set.fromList [oidA, oidB, oidC, oidD, oidE]
+allOpts :: [Option]
+allOpts = [optA', optB', optC', optD', optE']
+allOptsSet :: Set.Set Option
+allOptsSet = Set.fromList allOpts
 numOpts :: Int
 numOpts = Set.size allOptsSet
 
 user1, user2, user3 :: UserId
-user1 = "User1"
-user2 = "User2"
+user1 = testUser1
+user2 = testUser2
 user3 = "User3"
 
 ranks1 :: RankMap
@@ -43,8 +51,10 @@ ranks3 = Map.fromList [(oidB, 1), (oidA, 2), (oidE, 3), (oidC, 4), (oidD, 5)]
 userRankMaps :: UserRankMaps
 userRankMaps = Map.fromList [(user1, ranks1), (user2, ranks2), (user3, ranks3)]
 
-allOptsSet3 :: Set.Set OptionId
-allOptsSet3 = Set.fromList [oidA, oidB, oidC]
+allOpts3 :: [Option]
+allOpts3 = [optA', optB', optC']
+allOptsSet3 :: Set.Set Option
+allOptsSet3 = Set.fromList allOpts3
 numOpts3 :: Int
 numOpts3 = Set.size allOptsSet3
 
@@ -61,22 +71,26 @@ userRankMaps3 = Map.fromList [(user1, ranks1_3), (user2, ranks2_3), (user3, rank
 genRankMap :: Set.Set OptionId -> Gen RankMap
 genRankMap opts = do
   let optList = Set.toList opts
-  shuffledOpts <- elements (List.permutations optList) -- Use elements to pick one permutation
+  shuffledOpts <- elements (List.permutations optList)
   return $ Map.fromList $ zip shuffledOpts [1..]
 
-arbitraryUserRankMaps :: Gen (Set.Set OptionId, UserRankMaps)
+arbitraryUserRankMaps :: Gen (Set.Set Option, UserRankMaps)
 arbitraryUserRankMaps = do
-  -- Generate 3 to 5 unique option IDs
-  optIdsList <- listOf1 (arbitrary :: Gen TestOptionId) `suchThat` (\l -> length l >= 3 && length l <= 5)
-  let uniqueOptIds = Set.fromList $ map unTestOptionId optIdsList
-  numUsers <- elements [2..5]
-  userMaps <- sequence $ replicate numUsers (genRankMap uniqueOptIds)
-  let userIds = map (\i -> UserId (BSC8.pack $ "User" <> show i)) [1..numUsers]
-  return (uniqueOptIds, Map.fromList $ zip userIds userMaps)
+  let availableOpts = [optA', optB', optC', optD', optE']
+  k <- elements [3..5]
+  selectedOptsList <- sublistOf availableOpts `suchThat` (\l -> length l == k)
+  let selectedOptsSet = Set.fromList selectedOptsList
+      selectedOptIds = Set.map optionId selectedOptsSet
 
-rankingsAreComplete :: (Set.Set OptionId, UserRankMaps) -> Bool
+  numUsersGen <- elements [2..5]
+  userMaps <- sequence $ replicate numUsersGen (genRankMap selectedOptIds)
+  let userIdsGen = map (\i -> UserId (BSC8.pack $ "GenUser" <> show i)) [1..numUsersGen]
+  return (selectedOptsSet, Map.fromList $ zip userIdsGen userMaps)
+
+rankingsAreComplete :: (Set.Set Option, UserRankMaps) -> Bool
 rankingsAreComplete (opts, maps) =
-    Map.foldl' (\acc rankMap -> acc && Map.keysSet rankMap == opts) True maps
+    let optIds = Set.map optionId opts
+    in Map.foldl' (\acc rankMap -> acc && Map.keysSet rankMap == optIds) True maps
 
 spec :: Spec
 spec = describe "Ranking" $ do
@@ -89,9 +103,6 @@ spec = describe "Ranking" $ do
     it "handles single element" $ mean [5] `shouldBe` 5.0
 
   describe "variance" $ do
-    -- Var(1, 1, 2) = ( (1-1.33)^2 + (1-1.33)^2 + (2-1.33)^2 ) / (3-1)
-    -- = ( (-0.33)^2 + (-0.33)^2 + (0.67)^2 ) / 2
-    -- = ( 0.11 + 0.11 + 0.45 ) / 2 = 0.67 / 2 = 0.335
     it "calculates sample variance correctly" $ variance [1, 1, 2] `shouldBeApprox` (1.0/3.0)
     it "returns 0 for less than 2 elements" $ do
       variance [] `shouldBe` 0.0
@@ -100,35 +111,30 @@ spec = describe "Ranking" $ do
 
   describe "ratingsToRankMap" $ do
     it "converts sorted ratings to ranks" $ do
-      let ratings = [(optC, 1650.0), (optA, 1600.0), (optB, 1500.0)]
-          expected = Map.fromList [(optionId optC, 1), (optionId optA, 2), (optionId optB, 3)]
+      let ratings = [(optC', 1650.0), (optA', 1600.0), (optB', 1500.0)]
+          expected = Map.fromList [(oidC, 1), (oidA, 2), (oidB, 3)]
       ratingsToRankMap ratings `shouldBe` expected
 
   describe "calculateItemRankVariance" $ do
-      it "calculates variance for Item A" $
-        -- Ranks for A: 1 (User1), 1 (User2), 2 (User3) -> Mean=1.33, Var=0.333...
-        calculateItemRankVariance (optionId optA) (Map.keysSet userRankMaps) userRankMaps `shouldBeApprox` (1.0/3.0)
-      it "calculates variance for Item B" $
-        -- Ranks for B: 2 (User1), 4 (User2), 1 (User3) -> Mean=2.33, Var=2.333...
-        calculateItemRankVariance (optionId optB) (Map.keysSet userRankMaps) userRankMaps `shouldBeApprox` (7.0/3.0)
-      it "returns 0 if only one user ranked the item" $ do
-        let singleUserMap = Map.singleton user1 ranks1
-        calculateItemRankVariance (optionId optA) (Map.keysSet singleUserMap) singleUserMap `shouldBe` 0.0
+    it "calculates variance for Item A" $
+      calculateItemRankVariance oidA (Map.keysSet userRankMaps) userRankMaps `shouldBeApprox` (1.0/3.0)
+    it "calculates variance for Item B" $
+      calculateItemRankVariance oidB (Map.keysSet userRankMaps) userRankMaps `shouldBeApprox` (7.0/3.0)
+    it "returns 0 if only one user ranked the item" $ do
+      let singleUserMap = Map.singleton user1 ranks1
+      calculateItemRankVariance oidA (Map.keysSet singleUserMap) singleUserMap `shouldBe` 0.0
 
   describe "calculateCumulativeSetAtDepth" $ do
     it "calculates S_d for d=1" $
-      -- Top 1: User1=A, User2=A, User3=B -> {A, B}
-      calculateCumulativeSetAtDepth 1 userRankMaps `shouldBe` Set.fromList [optionId optA, optionId optB]
+      calculateCumulativeSetAtDepth 1 userRankMaps `shouldBe` Set.fromList [oidA, oidB]
     it "calculates S_d for d=2" $
-      -- Top 2: User1={A,B}, User2={A,C}, User3={B,A} -> {A, B, C}
-      calculateCumulativeSetAtDepth 2 userRankMaps `shouldBe` Set.fromList [optionId optA, optionId optB, optionId optC]
+      calculateCumulativeSetAtDepth 2 userRankMaps `shouldBe` Set.fromList [oidA, oidB, oidC]
     it "calculates S_d for d=5 (all items)" $
-      calculateCumulativeSetAtDepth 5 userRankMaps `shouldBe` Map.keysSet ranks1 -- All items
+      calculateCumulativeSetAtDepth 5 userRankMaps `shouldBe` Map.keysSet ranks1
 
   describe "SRA Calculation" $ do
-    let allOptions = Set.fromList [optA, optB, optC, optD, optE]
     it "matches the goldenMain example results approximately" $ do
-      let sraResult = calculateSRA allOptions userRankMaps
+      let sraResult = calculateSRA allOptsSet userRankMaps
           resultLookup = Map.fromList sraResult
 
       resultLookup Map.! 1 `shouldBeApprox` 1.154700
@@ -138,7 +144,7 @@ spec = describe "Ranking" $ do
       resultLookup Map.! 5 `shouldBeApprox` 1.095445
 
     it "returns empty list for fewer than 2 users" $ do
-      calculateSRA allOptions (Map.singleton user1 ranks1) `shouldBe` []
+      calculateSRA allOptsSet (Map.singleton user1 ranks1) `shouldBe` []
 
     it "returns empty list for no options" $ do
       calculateSRA Set.empty userRankMaps `shouldBe` []
@@ -156,7 +162,7 @@ spec = describe "Ranking" $ do
 
     describe "getAllOptionIds" $ do
       it "finds all unique option ids" $ do
-        getAllOptionIds userRankMaps `shouldBe` allOptsSet
+        getAllOptionIds userRankMaps `shouldBe` Set.map optionId allOptsSet
       it "handles empty map" $ do
         getAllOptionIds Map.empty `shouldBe` Set.empty
 
@@ -174,15 +180,11 @@ spec = describe "Ranking" $ do
     describe "aggregateByScoringRule" $ do
       it "correctly applies simple weights [1, 0, 0]" $ do
         let weights = [1.0, 0.0, 0.0]
-            -- User1: A=1, User2: A=1, User3: B=1
             expected = [(oidA, 2.0), (oidB, 1.0), (oidC, 0.0)]
         aggregateByScoringRule userRankMaps3 weights `shouldBe` expected
 
       it "correctly applies Borda-like weights [2, 1, 0]" $ do
         let weights = [2.0, 1.0, 0.0]
-            -- User1: A=2, B=1, C=0 -> Total A=2, B=1, C=0
-            -- User2: A=2, C=1, B=0 -> Total A=4, B=1, C=1
-            -- User3: B=2, A=1, C=0 -> Total A=5, B=3, C=1
             expected = [(oidA, 5.0), (oidB, 3.0), (oidC, 1.0)]
         aggregateByScoringRule userRankMaps3 weights `shouldBe` expected
 
@@ -190,88 +192,54 @@ spec = describe "Ranking" $ do
         aggregateByScoringRule Map.empty [1.0, 0.0] `shouldBe` []
 
       it "handles weights list shorter than ranks present" $ do
-        let weights = [1.0] -- Only score for rank 1
-            -- User1: A=1 -> A gets 1
-            -- User2: A=1 -> A gets 1
-            -- User3: B=1 -> B gets 1
+        let weights = [1.0]
             expected = [(oidA, 2.0), (oidB, 1.0), (oidC, 0.0)]
         aggregateByScoringRule userRankMaps3 weights `shouldBe` expected
 
     describe "aggregatePlurality" $ do
       it "calculates Plurality score correctly for 3 options" $ do
-        -- User1: A=1, User2: A=1, User3: B=1
         let expected = [(oidA, 2.0), (oidB, 1.0), (oidC, 0.0)]
         aggregatePlurality numOpts3 userRankMaps3 `shouldBe` expected
-      it "calculates Plurality score correctly for 5 options (paper example)" $ do
-        -- User1: A=1, User2: A=1, User3: B=1
+      it "calculates Plurality score correctly for 5 options" $ do
         let expected = [(oidA, 2.0), (oidB, 1.0), (oidC, 0.0), (oidD, 0.0), (oidE, 0.0)]
         aggregatePlurality numOpts userRankMaps `shouldBe` expected
 
     describe "aggregateVeto" $ do
       it "calculates Veto score correctly for 3 options" $ do
-        -- Veto assigns 1 point unless last (rank 3)
-        -- User1: A=1, B=1, C=0 -> Total A=1, B=1, C=0
-        -- User2: A=1, C=1, B=0 -> Total A=2, B=1, C=1
-        -- User3: B=1, A=1, C=0 -> Total A=3, B=2, C=1
         let expected = [(oidA, 3.0), (oidB, 2.0), (oidC, 1.0)]
         aggregateVeto numOpts3 userRankMaps3 `shouldBe` expected
-      it "calculates Veto score correctly for 5 options (paper example)" $ do
-        -- Veto assigns 1 point unless last (rank 5)
-        -- User1: A=1, B=1, C=1, D=1, E=0 -> Total A=1, B=1, C=1, D=1, E=0
-        -- User2: A=1, C=1, D=1, B=1, E=0 -> Total A=2, B=2, C=2, D=2, E=0
-        -- User3: B=1, A=1, E=1, C=1, D=0 -> Total A=3, B=3, C=3, D=2, E=1
+      it "calculates Veto score correctly for 5 options" $ do
         let expected = [(oidA, 3.0), (oidB, 3.0), (oidC, 3.0), (oidD, 2.0), (oidE, 1.0)]
-        -- Need to sort primary by score, secondary alphabetically for stability
         let result = aggregateVeto numOpts userRankMaps
-        result `shouldMatchList` expected -- Use shouldMatchList as order for ties (A,B,C) is not defined
+        result `shouldMatchList` expected
 
     describe "aggregateBorda" $ do
       it "calculates Borda score correctly for 3 options" $ do
-        -- Borda weights for n=3: [2, 1, 0]
-        -- User1: A=2, B=1, C=0 -> Total A=2, B=1, C=0
-        -- User2: A=2, C=1, B=0 -> Total A=4, B=1, C=1
-        -- User3: B=2, A=1, C=0 -> Total A=5, B=3, C=1
         let expected = [(oidA, 5.0), (oidB, 3.0), (oidC, 1.0)]
         aggregateBorda numOpts3 userRankMaps3 `shouldBe` expected
-      it "calculates Borda score correctly for 5 options (paper example)" $ do
-        -- Borda weights for n=5: [4, 3, 2, 1, 0]
-        -- User1: A=4, B=3, C=2, D=1, E=0 -> Total A=4, B=3, C=2, D=1, E=0
-        -- User2: A=4, C=3, D=2, B=1, E=0 -> Total A=8, B=4, C=5, D=3, E=0
-        -- User3: B=4, A=3, E=2, C=1, D=0 -> Total A=11, B=8, C=6, D=3, E=2
+      it "calculates Borda score correctly for 5 options" $ do
         let expected = [(oidA, 11.0), (oidB, 8.0), (oidC, 6.0), (oidD, 3.0), (oidE, 2.0)]
         aggregateBorda numOpts userRankMaps `shouldBe` expected
 
     describe "aggregateKemenyYoung" $ do
-      -- Kemeny-Young test cases
-      let ranksKY1 = Map.fromList [(oidA, 1), (oidB, 2), (oidC, 3)] -- A > B > C
-          ranksKY2 = Map.fromList [(oidA, 1), (oidB, 2), (oidC, 3)] -- A > B > C
-          ranksKY3 = Map.fromList [(oidC, 1), (oidB, 2), (oidA, 3)] -- C > B > A
+      let ranksKY1 = Map.fromList [(oidA, 1), (oidB, 2), (oidC, 3)]
+          ranksKY2 = Map.fromList [(oidA, 1), (oidB, 2), (oidC, 3)]
+          ranksKY3 = Map.fromList [(oidC, 1), (oidB, 2), (oidA, 3)]
           userRankMapsKY = Map.fromList [(user1, ranksKY1), (user2, ranksKY2), (user3, ranksKY3)]
-          optionsKY = Set.fromList [oidA, oidB, oidC]
+          optionsKY = Set.map optionId allOptsSet3
 
       it "finds the correct Kemeny-Young ranking (simple case)" $ do
-        -- Rankings: ABC, ABC, CBA
-        -- Permutations:
-        -- ABC: dist(ABC,ABC)=0, dist(ABC,ABC)=0, dist(ABC,CBA)=3 -> Total=3
-        -- ACB: dist(ACB,ABC)=1, dist(ACB,ABC)=1, dist(ACB,CBA)=2 -> Total=4
-        -- BAC: dist(BAC,ABC)=1, dist(BAC,ABC)=1, dist(BAC,CBA)=2 -> Total=4
-        -- BCA: dist(BCA,ABC)=2, dist(BCA,ABC)=2, dist(BCA,CBA)=1 -> Total=5
-        -- CAB: dist(CAB,ABC)=2, dist(CAB,ABC)=2, dist(CAB,CBA)=1 -> Total=5
-        -- CBA: dist(CBA,ABC)=3, dist(CBA,ABC)=3, dist(CBA,CBA)=0 -> Total=6
-        -- Minimum distance is 3 for ABC.
-        let expectedRanking = [(oidA, 1.0), (oidB, 2.0), (oidC, 3.0)] -- Ranks represented as scores
+        let expectedRanking = [(oidA, 1.0), (oidB, 2.0), (oidC, 3.0)]
         aggregateKemenyYoung optionsKY userRankMapsKY `shouldBe` expectedRanking
 
       it "handles unanimous agreement" $ do
         let unanimousMaps = Map.fromList [(user1, ranksKY1), (user2, ranksKY1), (user3, ranksKY1)]
             expectedRanking = [(oidA, 1.0), (oidB, 2.0), (oidC, 3.0)]
-        -- Distance to ABC is 0 for all users, total 0. All others > 0.
         aggregateKemenyYoung optionsKY unanimousMaps `shouldBe` expectedRanking
 
       it "handles paper example (computationally heavy!)" $ do
-        -- Manually calculated or from a source: The K-Y ranking for the paper example is A > B > C > D > E
         let expectedRankingPaper = [(oidA, 1.0), (oidB, 2.0), (oidC, 3.0), (oidD, 4.0), (oidE, 5.0)]
-        aggregateKemenyYoung allOptsSet userRankMaps `shouldBe` expectedRankingPaper
+        aggregateKemenyYoung (Set.map optionId allOptsSet) userRankMaps `shouldBe` expectedRankingPaper
 
       it "returns empty for no options" $ do
         aggregateKemenyYoung Set.empty userRankMaps `shouldBe` []

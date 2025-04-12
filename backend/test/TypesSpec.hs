@@ -9,7 +9,7 @@ import Test.QuickCheck ((===))
 import Types
 
 import TestArbs
-import TestUtils (optA, optB)
+import TestUtils
 
 spec :: Spec
 spec = describe "Types" $ do

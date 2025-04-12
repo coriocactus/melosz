@@ -17,7 +17,6 @@ import AppState
 import Rating
 import Marshal
 import Scheduler
-import Preference
 
 -- application
 
@@ -27,64 +26,66 @@ main = runConsole
 runConsole :: IO ()
 runConsole = do
   let appToRun :: App ()
-      appToRun = colourfulScaffold >>=
-        (\(options, user) -> runInteractiveSession user options)
+      appToRun = do
+        user <- setupColourfulUser
+        runInteractiveSession user
   runner appToRun
 
 runner :: App a -> IO a
 runner app = do
+  let initialOptions = colourfulOptions
+      user = "coriocactus"
+
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
-  let config = AppConfig
+  let initialConfig = AppConfig
         { configSystemTau = 0.5
         , configStateRef = initialStateRef
+        , configOptions = initialOptions
         }
-  MonadReader.runReaderT app config
+  _ <- MonadReader.runReaderT (setupUser user) initialConfig
+  MonadReader.runReaderT app initialConfig
 
-colourfulScaffold :: App ([Option], UserId)
-colourfulScaffold = do
-  let options =
-        [ createOption "red" "Red" ""
-        , createOption "orange" "Orange" ""
-        , createOption "yellow" "Yellow" ""
-        , createOption "green" "Green" ""
-        , createOption "blue" "Blue" ""
-        , createOption "violet" "Violet" ""
-        , createOption "indigo" "Indigo" ""
-        , createOption "cyan" "Cyan" ""
-        , createOption "magenta" "Magenta" ""
-        ]
+colourfulOptions :: Set.Set Option
+colourfulOptions = Set.fromList
+    [ createOption "red" "Red" ""
+    , createOption "orange" "Orange" ""
+    , createOption "yellow" "Yellow" ""
+    , createOption "green" "Green" ""
+    , createOption "blue" "Blue" ""
+    , createOption "violet" "Violet" ""
+    , createOption "indigo" "Indigo" ""
+    , createOption "cyan" "Cyan" ""
+    , createOption "magenta" "Magenta" ""
+    ]
+
+setupColourfulUser :: App UserId
+setupColourfulUser = do
   let user = "coriocactus"
-
-  setupOptions options
   setupUser user
-
-  pure (options, user)
+  pure user
 
 -- event loop
 
-runInteractiveSession :: UserId -> [Option] -> App ()
-runInteractiveSession user options = do
+runInteractiveSession :: UserId -> App ()
+runInteractiveSession user = do
   MonadIO.liftIO $ putStrLn "Starting ConsoleUI..."
   MonadIO.liftIO $ putStrLn $ "Welcome, " ++ show user ++ "!"
   MonadIO.liftIO $ putStrLn "You will be presented with pairs of options. Choose the one you prefer."
   runEvaluationSession user
-  reportFinalStatus user options
+  reportFinalStatus user
 
 runEvaluationSession :: UserId -> App ()
 runEvaluationSession uid = continueSession (1 :: Int)
   where
     continueSession comparisonNum = do
-      optionsSet <- getOptions
-      currentRatings <- getUserRatings uid $ Set.toList optionsSet
+      optionsList <- Set.toList <$> MonadReader.asks configOptions
+      currentRatings <- getUserRatings uid optionsList
       maybePair <- getNextComparisonPair uid
 
       case maybePair of
         Nothing -> do
-          isTrulyComplete <- checkIfComplete uid
           MonadIO.liftIO $ putStrLn ""
-          if isTrulyComplete
-            then MonadIO.liftIO $ putStrLn ">>> Ranking complete and consistent. <<<"
-            else MonadIO.liftIO $ putStrLn ">>> No more comparison pairs available based on current strategy (may indicate completion or need for different pair selection logic). <<<"
+          MonadIO.liftIO $ putStrLn ">>> No more comparison pairs available based on current strategy. <<<"
 
         Just (option1, option2) -> do
           let prevRankings = ratingsToRankings currentRatings
@@ -93,17 +94,17 @@ runEvaluationSession uid = continueSession (1 :: Int)
           MonadIO.liftIO $ Printf.printf "\n--- Comparison %d ---\n" comparisonNum
           result <- presentComparison uid option1 option2
 
-          recordComparison uid option1 option2 result
           updateRatings uid option1 option2 result
 
           displayRankings uid prevRankings prevRatingsMap
 
           continueSession (comparisonNum + 1)
 
-reportFinalStatus :: UserId -> [Option] -> App ()
-reportFinalStatus user options = do
+reportFinalStatus :: UserId -> App ()
+reportFinalStatus user = do
+  optionsList <- Set.toList <$> MonadReader.asks configOptions
   MonadIO.liftIO $ putStrLn "\n--- Final Results ---"
-  finalRankingsWithScores <- getUserRatings user options
+  finalRankingsWithScores <- getUserRatings user optionsList
 
   MonadIO.liftIO $ putStrLn $ "Final Glicko ratings for user " ++ show user ++ ":"
   Monad.forM_ (zip [1 :: Int ..] finalRankingsWithScores) $ \(rank, (option, rating)) ->
@@ -144,8 +145,8 @@ presentComparison uid option1 option2 = do
 
 displayRankings :: UserId -> [(Option, Int)] -> Map.Map OptionId Double -> App ()
 displayRankings uid prevRankings _prevRatingsMap = do
-  optionsSet <- getOptions
-  currentRatingsList <- getUserRatings uid $ Set.toList optionsSet
+  optionsList <- Set.toList <$> MonadReader.asks configOptions
+  currentRatingsList <- getUserRatings uid optionsList
   let currentRatingsMap = ratingsToMap currentRatingsList
       prevRankMap = Map.fromList $ map (\(opt, rank) -> (optionId opt, rank)) prevRankings
       currentWithRanks = ratingsToRankings currentRatingsList

@@ -79,9 +79,10 @@ calculateCumulativeSetAtDepth d userRankMaps =
 -- | - Empty list if there are fewer than 2 users or no options
 calculateSRA :: Set.Set Option -> UserRankMaps -> SRAResult
 calculateSRA allOptions userRankMaps =
-  let userIds = Map.keysSet userRankMaps
+  let optionIds = Set.map optionId allOptions -- Use OptionIds internally
+      userIds = Map.keysSet userRankMaps
       numUsers = Set.size userIds
-      numOptions = Set.size allOptions
+      numOptions = Set.size optionIds
       maxDepth = numOptions
 
       isValid = numUsers >= 2 && numOptions > 0
@@ -176,7 +177,7 @@ aggregateBorda numOptions userRankMaps =
 -- | Kendall tau distances to the individual user rankings.
 -- | WARNING: Computationally expensive O(m * k! * k^2), where m=users, k=options. Use with caution.
 -- | Args:
--- | - allOptions: Set of all OptionIds being ranked.
+-- | - allOptionIds: Set of all OptionIds being ranked.
 -- | - userRankMaps: Map of UserId to their RankMap.
 -- | Returns: The Kemeny-Young consensus ranking (best score is lowest distance), or empty if no options/users.
 aggregateKemenyYoung :: Set.Set OptionId -> UserRankMaps -> ConsensusRanking

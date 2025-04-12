@@ -40,30 +40,23 @@ spec = describe "AppState" $ do
       Set.size (getAllOptionPairsSet options) `shouldBe` expectedCount
 
   describe "initialUserState" $ do
-    it "initializes with default Glickos, empty prefs/violations" $ do
+    it "initializes with default Glickos" $ do
       let uState = initialUserState allTestOptionsSet
           expectedGlickoMap = Map.fromSet (const initialGlicko) (Set.map optionId allTestOptionsSet)
       userGlickos uState `shouldBe` expectedGlickoMap
-      userPreferences uState `shouldBe` Set.empty
-      userViolations uState `shouldBe` Set.empty
-
-    it "initializes uncompared pairs based on options" $ do
-      let uState = initialUserState allTestOptionsSet
-          expectedPairs = getAllOptionPairsSet allTestOptionsSet
-      userUncomparedPairs uState `shouldBe` expectedPairs
 
   describe "getUsers" $ do
     it "returns empty set initially" $ do
-      users <- evalAppTest getUsers Nothing initialState
+      users <- evalAppTest getUsers (Just defaultTestConfig) initialState
       users `shouldBe` Set.empty
     it "returns set of users present in stateUserStates" $ do
-      let state = initialState { stateUserStates = Map.fromList [(testUser1, simpleUserState Set.empty), (testUser2, simpleUserState Set.empty)] }
-      users <- evalAppTest getUsers Nothing state
+      let state = initialState { stateUserStates = Map.fromList [(testUser1, simpleUserState allTestOptionsSet), (testUser2, simpleUserState allTestOptionsSet)] }
+      users <- evalAppTest getUsers (Just defaultTestConfig) state
       users `shouldBe` Set.fromList [testUser1, testUser2]
 
   describe "getGlicko'" $ do
     it "returns initial glicko for unknown user/option" $ do
-      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) Nothing initialState
+      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) (Just defaultTestConfig) initialState
       glicko `shouldBe` initialGlicko
 
     it "returns specific glicko when set in user state" $ do
@@ -71,5 +64,5 @@ spec = describe "AppState" $ do
           glickoMap = Map.singleton (optionId optA) customGlicko
           uState = (simpleUserState allTestOptionsSet) { userGlickos = glickoMap }
           state = mkAppState allTestOptionsSet [(testUser1, uState)]
-      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) Nothing state
+      glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) (Just defaultTestConfig) state
       glicko `shouldBe` customGlicko

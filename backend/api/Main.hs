@@ -25,7 +25,6 @@ import Servant
 import Types
 import AppState
 import Marshal
-import Preference
 import Rating
 import Scheduler
 
@@ -40,12 +39,17 @@ main = launch 8080
 
 launch :: Int -> IO ()
 launch port = do
+  let initialOptions = colourfulOptions
+      user = "coriocactus"
+
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
-  let config = AppConfig
+  let initialConfig = AppConfig
         { configSystemTau = 0.5
         , configStateRef = initialStateRef
+        , configOptions = initialOptions
         }
-  initialConfig <- MonadReader.runReaderT colourfulScaffold config
+
+  _ <- MonadReader.runReaderT (setupUser user) initialConfig
 
   pool <- mkRedisPool
 
@@ -54,25 +58,18 @@ launch port = do
 
   Warp.run port (application initialConfig pool)
 
-colourfulScaffold :: App AppConfig
-colourfulScaffold = do
-  let options =
-        [ createOption "red" "Red" ""
-        , createOption "orange" "Orange" ""
-        , createOption "yellow" "Yellow" ""
-        , createOption "green" "Green" ""
-        , createOption "blue" "Blue" ""
-        , createOption "violet" "Violet" ""
-        , createOption "indigo" "Indigo" ""
-        , createOption "cyan" "Cyan" ""
-        , createOption "magenta" "Magenta" ""
-        ]
-  let user = "coriocactus"
-
-  setupOptions options
-  setupUser user
-
-  MonadReader.ask
+colourfulOptions :: Set.Set Option
+colourfulOptions = Set.fromList
+  [ createOption "red" "Red" ""
+  , createOption "orange" "Orange" ""
+  , createOption "yellow" "Yellow" ""
+  , createOption "green" "Green" ""
+  , createOption "blue" "Blue" ""
+  , createOption "violet" "Violet" ""
+  , createOption "indigo" "Indigo" ""
+  , createOption "cyan" "Cyan" ""
+  , createOption "magenta" "Magenta" ""
+  ]
 
 -- webserver
 
@@ -135,18 +132,8 @@ servants cfg pool = authServant pool
 data UserSession = UserSession
   { usNextPair :: Maybe (Option, Option)
   , usRankings :: [(Option, Double)]
-  , usStatus   :: ComparisonStatus
   } deriving (Generics.Generic, Show)
 instance Aeson.ToJSON UserSession
-
-data ComparisonStatus = ComparisonStatus
-  { statusProgress    :: (Int, Int, Double)         -- completed, total, percent
-  , statusAgreement   :: Double                     -- percent (based on Glicko ratings vs preferences)
-  , statusConsistency :: Double                     -- percent (transitivity score)
-  , statusViolations  :: [(Option, Option, Option)] -- cycle violations
-  , statusIsComplete  :: Bool
-  } deriving (Generics.Generic, Show)
-instance Aeson.ToJSON ComparisonStatus
 
 instance Aeson.FromJSON ComparisonSubmission where
   parseJSON = Aeson.withObject "ComparisonSubmission" $
@@ -194,24 +181,19 @@ compareServant cfg _pool maybeAuth =
     fetchAndBuildSession :: UserId -> App (Either ServerError UserSession)
     fetchAndBuildSession uid = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
-      optionsList <- Set.toList <$> getOptions
+      optionsList <- Set.toList <$> MonadReader.asks configOptions
       currentRatings <- getUserRatings uid optionsList
-      violationsSet <- getViolationsForUser uid
       mPair <- getNextComparisonPair uid
-
-      statusData <- gatherStatusData uid currentRatings violationsSet
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
       pure $ Right $ UserSession
         { usNextPair = mPair
         , usRankings = currentRatings
-        , usStatus   = statusData
         }
 
     handleGetCompareData :: UserId -> Handler UserSession
-    handleGetCompareData _userId =
+    handleGetCompareData userId =
       execApp cfg $ do
-        let userId = "coriocactus"
         mUserState <- getUserState userId
         case mUserState of
           Nothing -> do
@@ -233,7 +215,6 @@ compareServant cfg _pool maybeAuth =
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show userId ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
-            recordComparison userId winnerOpt loserOpt Win
             updateRatings userId winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
 
@@ -244,27 +225,5 @@ compareServant cfg _pool maybeAuth =
 
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do
-  optionsSet <- getOptions
+  optionsSet <- MonadReader.asks configOptions
   pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)
-
-gatherStatusData :: UserId -> [(Option, Double)] -> Set.Set (Option, Option, Option) -> App ComparisonStatus
-gatherStatusData uid ratings violationsSet = do
-  optionsCount <- Set.size <$> getOptions
-  uncomparedSet <- getUncomparedPairsForUser uid
-
-  let totalPossiblePairs = if optionsCount < 2 then 0 else optionsCount * (optionsCount - 1) `div` 2
-      completedPairs = totalPossiblePairs - Set.size uncomparedSet
-      progressPercent = if totalPossiblePairs == 0 then 100.0 else (fromIntegral completedPairs * 100.0 / fromIntegral totalPossiblePairs :: Double)
-      violationsList = Set.toList violationsSet
-
-  agreementScore <- calculateAgreementScore uid ratings
-  transitivityScore <- calculateTransitivityScore uid
-  isComplete <- checkIfComplete uid
-
-  pure $ ComparisonStatus
-    { statusProgress = (completedPairs, totalPossiblePairs, progressPercent)
-    , statusAgreement = agreementScore * 100.0
-    , statusConsistency = transitivityScore * 100.0
-    , statusViolations = violationsList
-    , statusIsComplete = isComplete
-    }

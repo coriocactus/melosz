@@ -1,4 +1,3 @@
--- File: Types.hs
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -7,7 +6,6 @@ module Types where
 
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
-import qualified Data.Set as Set
 import qualified Data.String as String
 import qualified Data.Text.Encoding as TextEnc
 import qualified GHC.Generics as Generics
@@ -79,8 +77,6 @@ defaultVolatility = 0.06
 
 initialGlicko :: Glicko
 initialGlicko = Glicko defaultRating defaultDeviation defaultVolatility
-
-type Relation = Set.Set (Option, Option)
 
 data MatchResult = Win | Loss
   deriving (Show, Eq)

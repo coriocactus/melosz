@@ -144,7 +144,7 @@ clampRating r = max 100 r
 clampRD :: Double -> Double
 clampRD rd = max 30 (min 350 rd)
 
--- normalization
+--- normalization
 glickoToDisplay :: Glicko -> Glicko
 glickoToDisplay glicko = Glicko
   (173.7178 * (glickoRating glicko - 1500) / 400 + 1500)

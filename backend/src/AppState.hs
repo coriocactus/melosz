@@ -19,6 +19,7 @@ type App = MonadReader.ReaderT AppConfig IO
 data AppConfig = AppConfig
   { configSystemTau :: Double
   , configStateRef :: IORef.IORef AppState
+  , configOptions :: Set.Set Option
   }
 
 getConfig :: App AppConfig
@@ -27,31 +28,23 @@ getConfig = MonadReader.ask
 -- global application state
 
 data AppState = AppState
-  { stateOptions :: Set.Set Option
-  , stateUserStates :: Map.Map UserId UserState
+  { stateUserStates :: Map.Map UserId UserState
   } deriving (Show, Eq)
 
 initialState :: AppState
 initialState = AppState
-  { stateOptions = Set.empty
-  , stateUserStates = Map.empty
+  { stateUserStates = Map.empty
   }
 
 -- user state
 
 data UserState = UserState
   { userGlickos :: Map.Map OptionId Glicko
-  , userPreferences :: Relation
-  , userViolations :: Set.Set (Option, Option, Option)
-  , userUncomparedPairs :: Set.Set (Option, Option)
   } deriving (Show, Eq)
 
 initialUserState :: Set.Set Option -> UserState
 initialUserState options = UserState
   { userGlickos = Map.fromSet (const initialGlicko) (Set.map optionId options)
-  , userPreferences = Set.empty
-  , userViolations = Set.empty
-  , userUncomparedPairs = getAllOptionPairsSet options
   }
 
 -- state accessors
@@ -61,9 +54,6 @@ readCurrentState = do
   ref <- MonadReader.asks configStateRef
   MonadIO.liftIO $ IORef.readIORef ref
 
-getOptions :: App (Set.Set Option)
-getOptions = stateOptions <$> readCurrentState
-
 getUsers :: App (Set.Set UserId)
 getUsers = Map.keysSet . stateUserStates <$> readCurrentState
 
@@ -71,7 +61,13 @@ getUserState :: UserId -> App (Maybe UserState)
 getUserState userId = Map.lookup userId . stateUserStates <$> readCurrentState
 
 getUserState' :: UserId -> App UserState
-getUserState' userId = Maybe.fromMaybe (initialUserState Set.empty) <$> getUserState userId
+getUserState' userId = do
+  mUserState <- getUserState userId
+  case mUserState of
+      Just us -> pure us
+      Nothing -> do
+          opts <- MonadReader.asks configOptions
+          pure $ initialUserState opts
 
 getGlicko :: UserId -> OptionId -> App (Maybe Glicko)
 getGlicko userId oid = do
@@ -80,15 +76,6 @@ getGlicko userId oid = do
 
 getGlicko' :: UserId -> OptionId -> App Glicko
 getGlicko' userId oid = Maybe.fromMaybe initialGlicko <$> getGlicko userId oid
-
-getPreferencesForUser :: UserId -> App Relation
-getPreferencesForUser userId = userPreferences <$> getUserState' userId
-
-getUncomparedPairsForUser :: UserId -> App (Set.Set (Option, Option))
-getUncomparedPairsForUser userId = userUncomparedPairs <$> getUserState' userId
-
-getViolationsForUser :: UserId -> App (Set.Set (Option, Option, Option))
-getViolationsForUser userId = userViolations <$> getUserState' userId
 
 -- utility
 
