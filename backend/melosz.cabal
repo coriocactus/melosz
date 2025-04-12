@@ -64,7 +64,7 @@ executable api
   hs-source-dirs: api
   main-is: Main.hs 
   other-modules:
-    Auth, Redis, Runner
+    Auth, Redis, Actions
 
 executable web
   import: common-options, common-warnings, web-deps

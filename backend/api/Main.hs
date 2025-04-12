@@ -30,8 +30,8 @@ import Rating
 import Scheduler
 
 import Auth
+import Actions
 import Redis
-import Runner
 
 main :: IO ()
 main = launch 8080
@@ -194,11 +194,11 @@ compareServant cfg _pool maybeAuth =
     handleTestCompare :: UserId -> Handler NoContent
     handleTestCompare userId = do
       MonadIO.liftIO $ putStrLn $ "USER: " ++ show userId
-      run $ Right NoContent
+      exec $ Right NoContent
 
     handleGetCompareData :: UserId -> Handler UserSession
     handleGetCompareData userId =
-      runApp cfg $ do
+      execApp cfg $ do
         mUserState <- getUserState userId
         case mUserState of
           -- TODO handle auth
@@ -228,7 +228,7 @@ compareServant cfg _pool maybeAuth =
       let winnerId = csWinnerId submission
           loserId  = csLoserId submission
 
-      runApp cfg $ do
+      execApp cfg $ do
         mWinnerOpt <- getOptionById winnerId
         mLoserOpt  <- getOptionById loserId
 
