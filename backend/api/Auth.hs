@@ -3,11 +3,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Main where
+module Auth where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
-import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Aeson as Aeson
 import qualified Data.Base64.Types as Base64
 import qualified Data.ByteString as BS
@@ -16,176 +15,18 @@ import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Digest.Pure.SHA as SHA
-import qualified Data.IORef as IORef
-import qualified Data.List as List
-import qualified Data.Pool as Pool
-import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
 import qualified Data.Time.Clock.POSIX as POSIXTime
 import qualified Data.Word as Word
 import qualified Database.Redis as Redis
 import qualified GHC.Generics as Generics
-import qualified Network.Wai as Wai
-import qualified Network.Wai.Handler.Warp as Warp
-import qualified Network.Wai.Middleware.Cors as Cors
-import qualified Network.Wai.Middleware.Gzip as Gzip
-import qualified Network.Wai.Middleware.RequestLogger as RL
 import qualified System.Random as Random
 
 import Servant
 
-import Types
-import AppState
-import Marshal
-import Preference
-import Rating
-import Scheduler
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | REDIS
-
-type RedisPool = Pool.Pool Redis.Connection
-
-mkRedisConn :: IO Redis.Connection
-mkRedisConn = Redis.checkedConnect Redis.defaultConnectInfo
-  { Redis.connectHost = "localhost"
-  , Redis.connectPort = Redis.PortNumber 6379
-  }
-
-mkRedisPool :: IO RedisPool
-mkRedisPool = Pool.newPool $ Pool.setNumStripes (Just 100) $
-  Pool.defaultPoolConfig mkRedisConn Redis.disconnect 60 100
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | RUNNER
-
-main :: IO ()
-main = runAPI 8080
-
-runAPI :: Int -> IO ()
-runAPI port = do
-  let appToRun :: App AppConfig
-      appToRun = colourfulScaffold
-  putStrLn $ "<| === === === Running server === === === |>"
-  putStrLn $ "Listening: http://localhost:" ++ show port
-  pool <- mkRedisPool
-  runner port pool appToRun
-
-runner :: Int -> Pool.Pool Redis.Connection -> App AppConfig -> IO ()
-runner port pool app = do
-  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
-  let config = AppConfig
-        { configKFactor = 32.0
-        , configInitialRating = 1500.0
-        , configStateRef = initialStateRef
-        }
-  initialConfig <- MonadReader.runReaderT app config
-  Warp.run port (application initialConfig pool)
-
-colourfulScaffold :: App AppConfig
-colourfulScaffold = do
-  let options =
-        [ createOption "red" "Red" ""
-        , createOption "orange" "Orange" ""
-        , createOption "yellow" "Yellow" ""
-        , createOption "green" "Green" ""
-        , createOption "blue" "Blue" ""
-        , createOption "violet" "Violet" ""
-        , createOption "indigo" "Indigo" ""
-        , createOption "cyan" "Cyan" ""
-        , createOption "magenta" "Magenta" ""
-        ]
-  let user = "coriocactus"
-
-  setupOptions options
-  setupUser user
-
-  MonadReader.ask
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: WAI APPLICATION
-
-jsonErrorFormatter :: ErrorFormatter
-jsonErrorFormatter typeRep req errMsg =
-  let body = Aeson.encode $ Aeson.object
-        [ "error" Aeson..= errMsg
-        , "source" Aeson..= show typeRep
-        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
-        , "method" Aeson..= TextEnc.decodeUtf8 (Wai.requestMethod req)
-        ]
-  in err400 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
-
-jsonNotFoundErrorFormatter :: NotFoundErrorFormatter
-jsonNotFoundErrorFormatter req =
-  let body = Aeson.encode $ Aeson.object
-        [ "error" Aeson..= ("Not Found" :: Text.Text)
-        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
-        ]
-  in err404 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
-
-jsonErrorFormatters :: ErrorFormatters
-jsonErrorFormatters = defaultErrorFormatters
-  { bodyParserErrorFormatter = jsonErrorFormatter
-  , urlParseErrorFormatter = jsonErrorFormatter
-  , headerParseErrorFormatter = jsonErrorFormatter
-  , notFoundErrorFormatter = jsonNotFoundErrorFormatter
-  }
-
-underButler :: Context '[ErrorFormatters]
-underButler = jsonErrorFormatters :. EmptyContext
-
-application :: AppConfig -> RedisPool -> Wai.Application
-application cfg pool = corsMiddleware $
-  Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
-  serveWithContext butler underButler (servants cfg pool)
-
-corsMiddleware :: Wai.Middleware
-corsMiddleware = Cors.cors $ const $ Just Cors.simpleCorsResourcePolicy
-  { Cors.corsOrigins = Just (["http://localhost:3000"], True)
-  , Cors.corsMethods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  , Cors.corsRequestHeaders = ["Content-Type", "Authorization", "Accept"]
-  }
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: API
-
-butler :: Proxy API
-butler = Proxy
-
-type API = EmptyAPI
-  :<|> AuthAPI
-  :<|> CompareAPI
-
-servants :: AppConfig -> RedisPool -> Server API
-servants cfg pool = emptyServer
-  :<|> authServant pool
-  :<|> compareServant cfg pool
-
-run :: Either ServerError a -> Handler a
-run action = case action of
-  Left err -> throwError err
-  Right val -> pure val
-
-runStrict :: a -> Handler a
-runStrict action = pure action
-
-runApp :: AppConfig -> App (Either ServerError a) -> Handler a
-runApp cfg action = do
-  result <- MonadIO.liftIO $ MonadReader.runReaderT action cfg
-  case result of
-    Left err -> throwError err
-    Right val -> pure val
-
-runAppStrict :: AppConfig -> App a -> Handler a
-runAppStrict cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg
-
-runRedis :: Pool.Pool Redis.Connection -> Redis.Redis a -> Handler a
-runRedis pool redisAction = MonadIO.liftIO $
-  Pool.withResource pool $ \conn -> Redis.runRedis conn redisAction
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: AUTH API
+import Runner
+import Redis
 
 type Token = Text.Text
 type Hash = Text.Text
@@ -426,130 +267,3 @@ generateAuthHash now nonce email = Text.pack $ SHA.showDigest hash2
     hash1 = SHA.sha512 $ BSL.concat [ nonce' , email' , now', secret ]
     hash1' = BSL.fromStrict $ BSU.fromString $ SHA.showDigest hash1
     hash2 = SHA.hmacSha512 secret hash1'
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: COMPARE API
-
-data UserSession = UserSession
-  { usNextPair :: Maybe (Option, Option)
-  , usRankings :: [(Option, Double)]
-  , usStatus   :: ComparisonStatus
-  } deriving (Generics.Generic, Show)
-instance Aeson.ToJSON UserSession
-
-data ComparisonStatus = ComparisonStatus
-  { statusProgress    :: (Int, Int, Double)         -- completed, total, percent
-  , statusAgreement   :: Double                     -- percent
-  , statusConsistency :: Double                     -- percent
-  , statusViolations  :: [(Option, Option, Option)] -- cycle violations
-  , statusIsComplete  :: Bool
-  } deriving (Generics.Generic, Show)
-instance Aeson.ToJSON ComparisonStatus
-
-instance Aeson.FromJSON ComparisonSubmission where
-  parseJSON = Aeson.withObject "ComparisonSubmission" $
-    \v -> ComparisonSubmission
-      <$> v Aeson..: "winnerId"
-      <*> v Aeson..: "loserId"
-data ComparisonSubmission = ComparisonSubmission
-  { csWinnerId :: OptionId
-  , csLoserId  :: OptionId
-  } deriving (Generics.Generic, Show)
-
-type CompareGetAPI = "compare" :> Capture "userid" UserId :> Get '[JSON] UserSession
-type ComparePostAPI = "compare" :> Capture "userid" UserId :> ReqBody '[JSON] ComparisonSubmission :> Post '[JSON] UserSession
-
-type CompareAPI = EmptyAPI
-  :<|> CompareGetAPI
-  :<|> ComparePostAPI
-
-compareServant :: AppConfig -> RedisPool -> Server CompareAPI
-compareServant cfg _pool = emptyServer
-  :<|> handleGetCompareData
-  :<|> handlePostCompare
-  where
-    handleGetCompareData :: UserId -> Handler UserSession
-    handleGetCompareData userId =
-      runApp cfg $ do
-        mUserState <- getUserState userId
-        case mUserState of
-          -- TODO handle auth
-          Nothing -> do
-            MonadIO.liftIO (putStrLn ("User not found: " ++ show userId))
-            pure $ Left err404
-          Just _ -> do
-            MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
-            optionsList <- Set.toList <$> getOptions
-            currentRatings <- getUserRatings userId optionsList
-            violationsSet <- getViolationsForUser userId
-            let violationPairs = findPairsInViolations violationsSet
-
-            mPair <- getNextComparisonPair userId currentRatings violationPairs
-            statusData <- gatherStatusData userId currentRatings violationsSet
-
-            MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
-            pure $ Right $ UserSession
-                { usNextPair = mPair
-                , usRankings = currentRatings
-                , usStatus   = statusData
-                }
-
-    handlePostCompare :: UserId -> ComparisonSubmission -> Handler UserSession
-    handlePostCompare userId submission = do
-
-      let winnerId = csWinnerId submission
-          loserId  = csLoserId submission
-
-      runApp cfg $ do
-        mWinnerOpt <- getOptionById winnerId
-        mLoserOpt  <- getOptionById loserId
-
-        case (mWinnerOpt, mLoserOpt) of
-          (Just winnerOpt, Just loserOpt) -> do
-            MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show userId ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
-            recordComparison userId winnerOpt loserOpt Win
-            updateRatings userId winnerOpt loserOpt Win
-            MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
-
-            optionsList <- Set.toList <$> getOptions
-            updatedRatings <- getUserRatings userId optionsList
-            updatedViolationsSet <- getViolationsForUser userId
-            let updatedViolationPairs = findPairsInViolations updatedViolationsSet
-            updatedPair <- getNextComparisonPair userId updatedRatings updatedViolationPairs
-            updatedStatusData <- gatherStatusData userId updatedRatings updatedViolationsSet
-
-            pure $ Right $ UserSession
-                { usNextPair = updatedPair
-                , usRankings = updatedRatings
-                , usStatus   = updatedStatusData
-                }
-          _ -> do
-            MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
-            pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })
-
-getOptionById :: OptionId -> App (Maybe Option)
-getOptionById oidToFind = do
-  optionsSet <- getOptions
-  pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)
-
-gatherStatusData :: UserId -> [(Option, Double)] -> Set.Set (Option, Option, Option) -> App ComparisonStatus
-gatherStatusData uid ratings violationsSet = do
-  optionsCount <- Set.size <$> getOptions
-  uncomparedSet <- getUncomparedPairsForUser uid
-
-  let totalPossiblePairs = if optionsCount < 2 then 0 else optionsCount * (optionsCount - 1) `div` 2
-      completedPairs = totalPossiblePairs - Set.size uncomparedSet
-      progressPercent = if totalPossiblePairs == 0 then 100.0 else (fromIntegral completedPairs * 100.0 / fromIntegral totalPossiblePairs :: Double)
-      violationsList = Set.toList violationsSet
-
-  agreementScore <- calculateAgreementScore uid ratings
-  transitivityScore <- calculateTransitivityScore uid
-  isComplete <- checkIfComplete uid
-
-  pure $ ComparisonStatus
-    { statusProgress = (completedPairs, totalPossiblePairs, progressPercent)
-    , statusAgreement = agreementScore * 100.0
-    , statusConsistency = transitivityScore * 100.0
-    , statusViolations = violationsList
-    , statusIsComplete = isComplete
-    }

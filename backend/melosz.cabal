@@ -61,8 +61,10 @@ executable api
   import: common-options, common-warnings, api-deps
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
-  hs-source-dirs: app
-  main-is: API.hs
+  hs-source-dirs: api
+  main-is: Main.hs 
+  other-modules:
+    Auth, Redis, Runner
 
 executable web
   import: common-options, common-warnings, web-deps
