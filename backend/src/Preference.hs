@@ -1,7 +1,6 @@
 module Preference where
 
 import qualified Control.Monad as Monad
-import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
@@ -51,9 +50,7 @@ calculateTransitivityScore userId = do
       | otherwise = fromIntegral $ n * (n - 1) * (n - 2) `div` 6
 
 calculateAgreementScore :: UserId -> [(Option, Double)] -> App Double
-calculateAgreementScore userId eloRatingsList = do
-  let eloRatingsMap = Map.fromList $ map (\(opt, rating) -> (optionId opt, rating)) eloRatingsList
-
+calculateAgreementScore userId _eloRatingsList = do
   userPrefs <- getPreferencesForUser userId
   let comparedPairs = Set.toList userPrefs
       totalCompared = length comparedPairs
@@ -61,19 +58,26 @@ calculateAgreementScore userId eloRatingsList = do
   if totalCompared == 0
     then pure 1.0
     else do
-      initialRating <- MonadReader.asks configInitialRating
-      let (concordant, discordant) = foldl (countAgreement eloRatingsMap initialRating) (0, 0) comparedPairs
+      let optionIdsInPrefs = Set.unions $ map (\(o1, o2) -> Set.fromList [optionId o1, optionId o2]) comparedPairs
+      glickoPlayersMap <- fmap Map.fromList $ Monad.forM (Set.toList optionIdsInPrefs) $ \oid -> do
+          player <- getGlickoPlayer' userId oid
+          pure (oid, player)
+
+      let (concordant, discordant) = foldl (countAgreement glickoPlayersMap) (0, 0) comparedPairs
       let tau = if totalCompared == 0 then 0 else (fromIntegral concordant - fromIntegral discordant) / fromIntegral totalCompared
       pure $ (tau + 1.0) / 2.0
   where
-    countAgreement :: Map.Map OptionId Double -> Double -> (Int, Int) -> (Option, Option) -> (Int, Int)
-    countAgreement eloMap defaultRating (conc, disc) (preferredOption, nonPreferredOption) =
+    countAgreement :: Map.Map OptionId GlickoPlayer -> (Int, Int) -> (Option, Option) -> (Int, Int)
+    countAgreement glickoMap (conc, disc) (preferredOption, nonPreferredOption) =
       let prefId = optionId preferredOption
           nonPrefId = optionId nonPreferredOption
-          lookupRating oid = Map.findWithDefault defaultRating oid eloMap
+          lookupPlayer oid = Map.findWithDefault initialGlickoPlayer oid glickoMap
 
-          ratingPref = lookupRating prefId
-          ratingNonPref = lookupRating nonPrefId
+          playerPref = lookupPlayer prefId
+          playerNonPref = lookupPlayer nonPrefId
+
+          ratingPref = glickoRating playerPref
+          ratingNonPref = glickoRating playerNonPref
       in
       if ratingPref > ratingNonPref then (conc + 1, disc)
       else if ratingPref < ratingNonPref then (conc, disc + 1)
@@ -112,50 +116,74 @@ recordComparison :: UserId -> Option -> Option -> MatchResult -> App ()
 recordComparison userId opt1 opt2 result = do
   optionsSet <- getOptions
 
-  modifyStateRef_ $ \s ->
-    case Map.lookup userId (stateUserStates s) of
-      Nothing -> s
-      Just userState ->
-        let
-          (winner, loser) = case result of
-                Win -> (opt1, opt2)
-                Loss -> (opt2, opt1)
-          newPref = (winner, loser)
-          reversePref = (loser, winner)
-          canonicalPair = makeCanonicalPair opt1 opt2
+  modifyStateRef_ $ \s -> case Map.lookup userId (stateUserStates s) of
+    Nothing -> s
+    Just userState ->
+      let
+        (winner, loser) = case result of
+              Win -> (opt1, opt2)
+              Loss -> (opt2, opt1)
+        newPref = (winner, loser)
+        reversePref = (loser, winner)
+        canonicalPair = makeCanonicalPair opt1 opt2
 
-          previousPrefs = userPreferences userState
+        previousPrefs = userPreferences userState
 
-          userPrefsWithoutReverse = Set.delete reversePref previousPrefs
-          newUserPrefs = Set.insert newPref userPrefsWithoutReverse
+        userPrefsWithoutReverse = Set.delete reversePref previousPrefs
+        newUserPrefs = Set.insert newPref userPrefsWithoutReverse
 
-          newUserUncompared = Set.delete canonicalPair (userUncomparedPairs userState)
+        newUserUncompared = Set.delete canonicalPair (userUncomparedPairs userState)
 
-          newUserViolations = calculateUpdatedViolations optionsSet newUserPrefs
+        newUserViolations = calculateUpdatedViolations optionsSet newUserPrefs
 
-          updatedUserState = userState
-                { userPreferences = newUserPrefs
-                , userUncomparedPairs = newUserUncompared
-                , userViolations = newUserViolations
-                }
+        updatedUserState = userState
+          { userPreferences = newUserPrefs
+          , userUncomparedPairs = newUserUncompared
+          , userViolations = newUserViolations
+          }
 
-          updatedUserStates = Map.insert userId updatedUserState (stateUserStates s)
-        in s { stateUserStates = updatedUserStates }
+        updatedUserStates = Map.insert userId updatedUserState (stateUserStates s)
+      in s { stateUserStates = updatedUserStates }
 
-restoreUserState :: UserId -> Relation -> Map.Map OptionId Double -> App ()
-restoreUserState userId restoredPrefs restoredRatings = do
+restoreUserState :: UserId -> Relation -> App ()
+restoreUserState userId restoredPrefs = do
   optionsSet <- getOptions
   let allPossiblePairs = getAllOptionPairsSet optionsSet
       comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
       newUserUncomparedPairs = allPossiblePairs Set.\\ comparedCanonicalPairs
       newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
 
+      allOptionIds = Set.map optionId optionsSet
+      initialPlayers = Map.fromSet (const initialGlickoPlayer) allOptionIds
+
       newUserState = UserState
-            { userRatings = restoredRatings
-            , userPreferences = restoredPrefs
-            , userViolations = newUserViolations
-            , userUncomparedPairs = newUserUncomparedPairs
-            }
+        { userGlickoPlayers = initialPlayers
+        , userPreferences = restoredPrefs
+        , userViolations = newUserViolations
+        , userUncomparedPairs = newUserUncomparedPairs
+        }
 
   modifyStateRef_ $ \s ->
       s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }
+
+restoreUserStateWithPlayers :: UserId -> Relation -> Map.Map OptionId GlickoPlayer -> App ()
+restoreUserStateWithPlayers userId restoredPrefs restoredPlayers = do
+  optionsSet <- getOptions
+  let allPossiblePairs = getAllOptionPairsSet optionsSet
+      comparedCanonicalPairs = Set.map (\(winner, loser) -> makeCanonicalPair winner loser) restoredPrefs
+      newUserUncomparedPairs = allPossiblePairs Set.\\ comparedCanonicalPairs
+      newUserViolations = calculateUpdatedViolations optionsSet restoredPrefs
+
+      allOptionIds = Set.map optionId optionsSet
+      finalPlayers = Map.union restoredPlayers (Map.fromSet (const initialGlickoPlayer) allOptionIds)
+
+
+      newUserState = UserState
+        { userGlickoPlayers = finalPlayers
+        , userPreferences = restoredPrefs
+        , userViolations = newUserViolations
+        , userUncomparedPairs = newUserUncomparedPairs
+        }
+
+  modifyStateRef_ $ \s ->
+    s { stateUserStates = Map.insert userId newUserState (stateUserStates s) }

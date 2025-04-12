@@ -19,8 +19,7 @@ type App = MonadReader.ReaderT AppConfig IO
 -- === Configuration ===
 
 data AppConfig = AppConfig
-  { configKFactor :: Double
-  , configInitialRating :: Double
+  { configSystemTau :: Double
   , configStateRef :: IORef.IORef AppState
   }
 
@@ -43,7 +42,7 @@ initialState = AppState
 -- === User State ===
 
 data UserState = UserState
-  { userRatings :: Map.Map OptionId Double
+  { userGlickoPlayers :: Map.Map OptionId GlickoPlayer
   , userPreferences :: Relation
   , userViolations :: Set.Set (Option, Option, Option)
   , userUncomparedPairs :: Set.Set (Option, Option)
@@ -51,7 +50,7 @@ data UserState = UserState
 
 initialUserState :: Set.Set Option -> UserState
 initialUserState options = UserState
-  { userRatings = Map.empty
+  { userGlickoPlayers = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
   , userPreferences = Set.empty
   , userViolations = Set.empty
   , userUncomparedPairs = getAllOptionPairsSet options
@@ -73,9 +72,16 @@ getUsers = Map.keysSet . stateUserStates <$> readCurrentState
 getUserState :: UserId -> App (Maybe UserState)
 getUserState userId = Map.lookup userId . stateUserStates <$> readCurrentState
 
--- helper to get UserState, providing a default empty state
 getUserState' :: UserId -> App UserState
 getUserState' userId = Maybe.fromMaybe (initialUserState Set.empty) <$> getUserState userId
+
+getGlickoPlayer :: UserId -> OptionId -> App (Maybe GlickoPlayer)
+getGlickoPlayer userId oid = do
+  mUserState <- getUserState userId
+  pure $ mUserState >>= Map.lookup oid . userGlickoPlayers
+
+getGlickoPlayer' :: UserId -> OptionId -> App GlickoPlayer
+getGlickoPlayer' userId oid = Maybe.fromMaybe initialGlickoPlayer <$> getGlickoPlayer userId oid
 
 getPreferencesForUser :: UserId -> App Relation
 getPreferencesForUser userId = userPreferences <$> getUserState' userId

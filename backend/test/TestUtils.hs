@@ -8,48 +8,39 @@ import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.IORef as IORef
 
-import Test.Hspec (Expectation, expectationFailure)
+import Test.Hspec
 
 import Types
 import AppState
 
-data AppTestConfig = AppTestConfig
-  { testConfigKFactor :: Double
-  , testConfigInitialRating :: Double
+defaultTestConfig :: AppConfig
+defaultTestConfig = AppConfig
+  { configSystemTau = 0.5
+  , configStateRef = error "configStateRef should be set by test runner"
   }
 
-defaultTestConfig :: AppTestConfig
-defaultTestConfig = AppTestConfig
-  { testConfigKFactor = 32.0
-  , testConfigInitialRating = 1500.0
-  }
+evalAppTest :: App a -> Maybe AppConfig -> AppState -> IO a
+evalAppTest action mConfig initState =
+  fst <$> runAppTest action mConfig initState
 
-evalAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO a
-evalAppTest action mTestConfig initState =
-  fst <$> runAppTest action mTestConfig initState
-
-execAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO AppState
-execAppTest action mTestConfig initState = do
+execAppTest :: App a -> Maybe AppConfig -> AppState -> IO AppState
+execAppTest action mConfig initState = do
   ref <- IORef.newIORef initState
-  (_, finalRef) <- runAppTestRef action mTestConfig ref
+  (_, finalRef) <- runAppTestRef action mConfig ref
   IORef.readIORef finalRef
 
-runAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO (a, AppState)
-runAppTest action mTestConfig initState = do
+runAppTest :: App a -> Maybe AppConfig -> AppState -> IO (a, AppState)
+runAppTest action mConfig initState = do
   ref <- IORef.newIORef initState
-  (result, finalRef) <- runAppTestRef action mTestConfig ref
+  (result, finalRef) <- runAppTestRef action mConfig ref
   finalState <- IORef.readIORef finalRef
   pure (result, finalState)
 
-runAppTestRef :: App a -> Maybe AppTestConfig -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
-runAppTestRef action mTestConfig stateRef = do
-  let testConfig = Maybe.fromMaybe defaultTestConfig mTestConfig
-      config = AppConfig
-        { configKFactor = testConfigKFactor testConfig
-        , configInitialRating = testConfigInitialRating testConfig
-        , configStateRef = stateRef
-        }
-  result <- MonadReader.runReaderT action config
+runAppTestRef :: App a -> Maybe AppConfig -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
+runAppTestRef action mConfig stateRef = do
+  let config = Maybe.fromMaybe defaultTestConfig mConfig
+      finalConfig = config { configStateRef = stateRef }
+  result <- MonadReader.runReaderT action finalConfig
   pure (result, stateRef)
 
 shouldBeApproxPrec :: (Fractional a, Ord a, Show a) => a -> a -> a -> Expectation
@@ -91,9 +82,9 @@ mkAppState options userStatesList = initialState
   , stateUserStates = Map.fromList userStatesList
   }
 
-mkUserState :: Map.Map OptionId Double -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
-mkUserState ratings prefs violations uncompared = UserState
-  { userRatings = ratings
+mkUserState :: Map.Map OptionId GlickoPlayer -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserState
+mkUserState glickoMap prefs violations uncompared = UserState
+  { userGlickoPlayers = glickoMap
   , userPreferences = prefs
   , userViolations = violations
   , userUncomparedPairs = uncompared
@@ -101,5 +92,12 @@ mkUserState ratings prefs violations uncompared = UserState
 
 setupStateSingleUser :: UserId -> Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> AppState
 setupStateSingleUser userId options prefs violations uncompared =
-  let uState = mkUserState Map.empty prefs violations uncompared
+  let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
+      uState = mkUserState initialGlicko prefs violations uncompared
   in mkAppState options [(userId, uState)]
+
+simpleUserState :: Set.Set Option -> UserState
+simpleUserState options =
+  let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
+      initialUncompared = getAllOptionPairsSet options
+  in mkUserState initialGlicko Set.empty Set.empty initialUncompared

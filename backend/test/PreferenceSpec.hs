@@ -5,8 +5,6 @@ module PreferenceSpec where
 import Test.Hspec
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Control.Monad.Reader as MonadReader
-import qualified Data.IORef as IORef
 
 import Types
 import AppState
@@ -19,10 +17,17 @@ spec = describe "Preference" $ do
 
   let prefAB = Set.singleton (optA, optB) :: Relation
       prefsABCycle = Set.fromList [(optA, optB), (optB, optC), (optC, optA)] :: Relation
+      prefsABCLinear = Set.fromList [(optA, optB), (optB, optC), (optA, optC)] :: Relation
       prefsAB_BC = Set.fromList [(optA, optB), (optB, optC)] :: Relation
-      emptyUserState options = initialUserState options
       allOptions = allTestOptionsSet
-      setupUser user opts uState = mkAppState opts [(user, uState)]
+      opts3 = Set.fromList [optA, optB, optC]
+      cycleViolationABC = canonicalizeViolation (optA, optC, optB)
+
+      setupTestUserState :: Set.Set Option -> Relation -> Set.Set (Option, Option, Option) -> Set.Set (Option, Option) -> UserId -> AppState
+      setupTestUserState options prefs viols uncomp user =
+          let initialGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId options)
+              uState = mkUserState initialGlicko prefs viols uncomp
+          in mkAppState options [(user, uState)]
 
   describe "isPreferred" $ do
     it "returns True if preference exists" $ isPreferred optA optB prefAB `shouldBe` True
@@ -31,7 +36,7 @@ spec = describe "Preference" $ do
 
   describe "hasBeenCompared" $ do
     it "returns True if A > B exists" $ hasBeenCompared optA optB prefAB `shouldBe` True
-    it "returns True if B > A exists" $ hasBeenCompared optB optA prefAB `shouldBe` True
+    it "returns True if B > A exists" $ hasBeenCompared optB optA prefAB `shouldBe` True -- Check reverse
     it "returns False if neither preference exists" $ hasBeenCompared optA optC prefAB `shouldBe` False
 
   describe "canonicalizeViolation" $ do
@@ -62,34 +67,26 @@ spec = describe "Preference" $ do
             ]
       findPairsInViolations violationsSet `shouldBe` expectedPairs
 
-  let cycleViolationABC = canonicalizeViolation (optA, optC, optB)
-
   describe "recordComparison" $ do
     it "adds a new preference (Win)" $ do
-      let opts = Set.fromList [optA, optB]
-          startState = setupUser testUser1 opts (emptyUserState opts)
+      let startState = mkAppState opts3 [(testUser1, simpleUserState opts3)]
       finalState <- execAppTest (recordComparison testUser1 optA optB Win) Nothing startState
       let finalUserState = stateUserStates finalState Map.! testUser1
-          prefs = userPreferences finalUserState
-      Set.member (optA, optB) prefs `shouldBe` True
+      Set.member (optA, optB) (userPreferences finalUserState) `shouldBe` True
 
     it "removes the canonical pair from uncompared pairs" $ do
-      let opts = Set.fromList [optA, optB, optC]
-          startState = setupUser testUser1 opts (emptyUserState opts)
+      let startState = mkAppState opts3 [(testUser1, simpleUserState opts3)]
+          initialUncomparedSize = Set.size $ userUncomparedPairs (simpleUserState opts3)
       finalState <- execAppTest (recordComparison testUser1 optA optB Win) Nothing startState
       let finalUserState = stateUserStates finalState Map.! testUser1
           uncompared = userUncomparedPairs finalUserState
-          initialUncompared = userUncomparedPairs (emptyUserState opts)
       Set.member (makeCanonicalPair optA optB) uncompared `shouldBe` False
-      Set.size uncompared `shouldBe` (Set.size initialUncompared - 1)
+      Set.size uncompared `shouldBe` (initialUncomparedSize - 1)
 
     it "replaces an existing reverse preference" $ do
-      let opts = Set.fromList [optA, optB, optC]
-          startPrefs = Set.singleton (optB, optA)
-          initialAllPairs = getAllOptionPairsSet opts
-          startUncompared = Set.delete (makeCanonicalPair optA optB) initialAllPairs
-          startUserState = (emptyUserState opts) { userPreferences = startPrefs, userUncomparedPairs = startUncompared }
-          startState = setupUser testUser1 opts startUserState
+      let startPrefs = Set.singleton (optB, optA)
+          startUncompared = Set.delete (makeCanonicalPair optA optB) (getAllOptionPairsSet opts3)
+          startState = setupTestUserState opts3 startPrefs Set.empty startUncompared testUser1
       finalState <- execAppTest (recordComparison testUser1 optA optB Win) Nothing startState
       let finalUserState = stateUserStates finalState Map.! testUser1
           prefs = userPreferences finalUserState
@@ -99,16 +96,9 @@ spec = describe "Preference" $ do
       userUncomparedPairs finalUserState `shouldBe` startUncompared
 
     it "detects and records a new violation when a comparison completes a cycle" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-          startPrefs = Set.fromList [(optB, optC), (optC, optA)]
+      let startPrefs = Set.fromList [(optB, optC), (optC, optA)]
           startUncompared = Set.singleton (makeCanonicalPair optA optB)
-          startUserState =
-            (emptyUserState opts3)
-              { userPreferences = startPrefs
-              , userViolations = Set.empty
-              , userUncomparedPairs = startUncompared
-              }
-          startState = setupUser testUser1 opts3 startUserState
+          startState = setupTestUserState opts3 startPrefs Set.empty startUncompared testUser1
           expectedViolation = canonicalizeViolation (optA, optC, optB)
 
       finalState <- execAppTest (recordComparison testUser1 optA optB Win) Nothing startState
@@ -116,22 +106,14 @@ spec = describe "Preference" $ do
       let finalUserState = stateUserStates finalState Map.! testUser1
           finalViolations = userViolations finalUserState
 
-      finalViolations `shouldSatisfy` (not . Set.null)
       finalViolations `shouldBe` Set.singleton expectedViolation
       Set.null (userUncomparedPairs finalUserState) `shouldBe` True
 
     it "removes violations when reversing a preference breaks a cycle" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-          startPrefs = Set.fromList [(optA, optB), (optB, optC), (optC, optA)]
+      let startPrefs = prefsABCycle
           startViolations = Set.singleton cycleViolationABC
           startUncompared = Set.empty
-          startUserState =
-            (emptyUserState opts3)
-              { userPreferences = startPrefs
-              , userViolations = startViolations
-              , userUncomparedPairs = startUncompared
-              }
-          startState = setupUser testUser1 opts3 startUserState
+          startState = setupTestUserState opts3 startPrefs startViolations startUncompared testUser1
       finalState <- execAppTest (recordComparison testUser1 optA optC Win) Nothing startState
       let finalUserState = stateUserStates finalState Map.! testUser1
           violations = userViolations finalUserState
@@ -139,183 +121,142 @@ spec = describe "Preference" $ do
       Set.null violations `shouldBe` True
       finalPrefs `shouldBe` Set.fromList [(optA, optB), (optB, optC), (optA, optC)]
 
-
   describe "calculateUpdatedViolations" $ do
-    let options = Set.fromList [optA, optB, optC]
     it "finds violation in a cyclic preference set" $ do
-        let currentPrefs = Set.fromList [(optA, optB), (optB, optC), (optC, optA)]
-        let violations = calculateUpdatedViolations options currentPrefs
-        Set.null violations `shouldBe` False
+        let currentPrefs = prefsABCycle
+        let violations = calculateUpdatedViolations opts3 currentPrefs
         Set.size violations `shouldBe` 1
-        Set.findMin violations `shouldBe` canonicalizeViolation (optA, optC, optB)
+        Set.findMin violations `shouldBe` cycleViolationABC
 
     it "finds no violations in a consistent preference set" $ do
-        let currentPrefs = Set.fromList [(optA, optB), (optB, optC), (optA, optC)]
-        let violations = calculateUpdatedViolations options currentPrefs
+        let currentPrefs = prefsABCLinear
+        let violations = calculateUpdatedViolations opts3 currentPrefs
         Set.null violations `shouldBe` True
 
   describe "checkIfComplete" $ do
     it "returns True when uncompared and violations are empty" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-      let uState = (emptyUserState opts3) { userPreferences = prefsAB_BC, userUncomparedPairs = Set.empty, userViolations = Set.empty }
-          state = setupUser testUser1 opts3 uState
+      let state = setupTestUserState opts3 prefsABCLinear Set.empty Set.empty testUser1
       complete <- evalAppTest (checkIfComplete testUser1) Nothing state
       complete `shouldBe` True
     it "returns False when uncompared is not empty" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-      let uState = (emptyUserState opts3) { userPreferences = prefsAB_BC, userUncomparedPairs = Set.singleton (makeCanonicalPair optA optC), userViolations = Set.empty }
-          state = setupUser testUser1 opts3 uState
+      let uncomp = Set.singleton (makeCanonicalPair optA optC)
+          state = setupTestUserState opts3 prefsAB_BC Set.empty uncomp testUser1
       complete <- evalAppTest (checkIfComplete testUser1) Nothing state
       complete `shouldBe` False
     it "returns False when violations is not empty" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-      let uState = (emptyUserState opts3) { userPreferences = prefsABCycle, userUncomparedPairs = Set.empty, userViolations = Set.singleton cycleViolationABC }
-          state = setupUser testUser1 opts3 uState
+      let state = setupTestUserState opts3 prefsABCycle (Set.singleton cycleViolationABC) Set.empty testUser1
       complete <- evalAppTest (checkIfComplete testUser1) Nothing state
       complete `shouldBe` False
 
   describe "calculateTransitivityScore" $ do
     it "returns 1.0 for fewer than 3 options" $ do
       let opts2 = Set.fromList [optA, optB]
-          uState = emptyUserState opts2
-          state = mkAppState opts2 [(testUser1, uState)]
+          state = mkAppState opts2 [(testUser1, simpleUserState opts2)]
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing state
       score `shouldBeApprox` 1.0
 
     it "returns 1.0 for 3 options with no violations" $ do
-      let opts3 = Set.fromList [optA, optB, optC]
-          uState = (emptyUserState opts3) { userPreferences = prefsAB_BC, userViolations = Set.empty }
-          state = mkAppState opts3 [(testUser1, uState)]
+      let state = setupTestUserState opts3 prefsABCLinear Set.empty Set.empty testUser1
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing state
       score `shouldBeApprox` 1.0
 
     it "returns 0.0 for 3 options with 1 violation (the only possible triple)" $ do
-       let opts3 = Set.fromList [optA, optB, optC]
-           uState = (emptyUserState opts3) { userPreferences = prefsABCycle, userViolations = Set.singleton cycleViolationABC }
-           state = mkAppState opts3 [(testUser1, uState)]
+       let state = setupTestUserState opts3 prefsABCycle (Set.singleton cycleViolationABC) Set.empty testUser1
        score <- evalAppTest (calculateTransitivityScore testUser1) Nothing state
        score `shouldBeApprox` 0.0
 
     it "calculates correctly for 4 options with 1 violation" $ do
-      let uState = (emptyUserState allOptions) { userViolations = Set.singleton cycleViolationABC }
-          state = mkAppState allOptions [(testUser1, uState)]
+      let state = setupTestUserState allOptions Set.empty (Set.singleton cycleViolationABC) Set.empty testUser1
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing state
-      score `shouldBeApprox` 0.75 -- 1 - 1/C(4,3) = 1 - 1/4 = 0.75
+      score `shouldBeApprox` 0.75
 
     it "calculates correctly for 4 options with 2 violations" $ do
-      let cycleViolationABD = canonicalizeViolation (optA, optD, optB) -- Assuming A > B > D > A
+      let cycleViolationABD = canonicalizeViolation (optA, optD, optB)
           violations = Set.fromList [cycleViolationABC, cycleViolationABD]
-          uState = (emptyUserState allOptions) { userViolations = violations }
-          state = mkAppState allOptions [(testUser1, uState)]
+          state = setupTestUserState allOptions Set.empty violations Set.empty testUser1
       score <- evalAppTest (calculateTransitivityScore testUser1) Nothing state
-      score `shouldBeApprox` 0.5 -- 1 - 2/C(4,3) = 1 - 2/4 = 0.5
+      score `shouldBeApprox` 0.5
 
   describe "calculateAgreementScore" $ do
-    let eloRankPerfect = [(optA, 1700.0), (optB, 1600.0), (optC, 1500.0)]
-        eloRankTies = [(optA, 1600.0), (optB, 1600.0), (optC, 1500.0)]
-        opts3 = Set.fromList [optA, optB, optC]
+    let setupGlickoState :: Set.Set Option -> Map.Map OptionId Double -> Relation -> UserId -> AppState
+        setupGlickoState options ratingsMap prefs user =
+          let glickoMap = Map.map (\r -> initialGlickoPlayer { glickoRating = r }) ratingsMap
+              uncomp = getAllOptionPairsSet options Set.\\ Set.map (\(w,l) -> makeCanonicalPair w l) prefs
+              uState = mkUserState glickoMap prefs Set.empty uncomp
+          in mkAppState options [(user, uState)]
+
+    let glickoRatingsPerfect = Map.fromList [(optionId optA, 1700.0), (optionId optB, 1600.0), (optionId optC, 1500.0)]
+        glickoRatingsTies = Map.fromList [(optionId optA, 1600.0), (optionId optB, 1600.0), (optionId optC, 1500.0)]
 
     it "returns 1.0 (max agreement) when no preferences exist" $ do
-      let uState = emptyUserState opts3
-          state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
+      let state = setupGlickoState opts3 glickoRatingsPerfect Set.empty testUser1
+      score <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
-    it "returns 1.0 (max agreement) when preferences perfectly match Elo order" $ do
+    it "returns 1.0 (max agreement) when preferences perfectly match Glicko rating order" $ do
       let prefs = Set.fromList [(optA, optB), (optA, optC), (optB, optC)]
-          uState = (emptyUserState opts3) { userPreferences = prefs }
-          state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
+          state = setupGlickoState opts3 glickoRatingsPerfect prefs testUser1
+      score <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
-    it "returns 0.0 (max disagreement) when preferences perfectly oppose Elo order" $ do
+    it "returns 0.0 (max disagreement) when preferences perfectly oppose Glicko rating order" $ do
       let prefs = Set.fromList [(optC, optB), (optC, optA), (optB, optA)]
-          uState = (emptyUserState opts3) { userPreferences = prefs }
-          state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
+          state = setupGlickoState opts3 glickoRatingsPerfect prefs testUser1
+      score <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) state
       score `shouldBeApprox` 0.0
 
     it "returns 0.5 (no correlation) for mixed preferences" $ do
-      -- A > B (concordant), C > A (discordant)
       let prefs = Set.fromList [(optA, optB), (optC, optA)]
-          uState = (emptyUserState opts3) { userPreferences = prefs }
-          state = mkAppState opts3 [(testUser1, uState)]
-      -- Concordant = 1, Discordant = 1, Total = 2
-      -- Tau = (1 - 1) / 2 = 0
-      -- Score = (0 + 1) / 2 = 0.5
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
+          state = setupGlickoState opts3 glickoRatingsPerfect prefs testUser1
+      score <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) state
       score `shouldBeApprox` 0.5
 
-    it "handles ties in Elo ratings (counts as neither concordant nor discordant)" $ do
-      -- Elo: A=1600, B=1600, C=1500
-      -- Prefs: A > C (concordant), B > C (concordant)
+    it "handles ties in Glicko ratings (counts as neither concordant nor discordant)" $ do
       let prefs = Set.fromList [(optA, optC), (optB, optC)]
-          uState = (emptyUserState opts3) { userPreferences = prefs }
-          state = mkAppState opts3 [(testUser1, uState)]
-      -- Concordant = 2, Discordant = 0, Total = 2
-      -- Tau = (2 - 0) / 2 = 1
-      -- Score = (1 + 1) / 2 = 1.0
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfig) state
+          state = setupGlickoState opts3 glickoRatingsTies prefs testUser1
+      score <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
-      -- Prefs: A > B (tie in elo, ignored)
       let prefsAB = Set.singleton (optA, optB)
-          uStateAB = (emptyUserState opts3) { userPreferences = prefsAB }
-          stateAB = mkAppState opts3 [(testUser1, uStateAB)]
-      -- Concordant = 0, Discordant = 0, Total = 1
-      -- Tau = (0 - 0) / 1 = 0
-      -- Score = (0 + 1) / 2 = 0.5
-      scoreAB <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfig) stateAB
+          stateAB = setupGlickoState opts3 glickoRatingsTies prefsAB testUser1
+      scoreAB <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) stateAB
       scoreAB `shouldBeApprox` 0.5
 
-    it "uses initial rating for options not present in the Elo list" $ do
-      let optsAD = Set.fromList [optA, optD]
-      -- Elo: A=1700. D uses initial=1500.
-      -- Prefs: A > D (concordant, since 1700 > 1500)
-      let prefsAD = Set.singleton (optA, optD)
-          uStateAD = (emptyUserState optsAD) { userPreferences = prefsAD }
-          stateAD = mkAppState optsAD [(testUser1, uStateAD)]
-      -- Concordant = 1, Discordant = 0, Total = 1. Score = 1.0
-      scoreAD <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) stateAD
-      scoreAD `shouldBeApprox` 1.0
+    it "uses initial Glicko rating for options not in the user's Glicko map (shouldn't happen with proper init)" $ do
+       let optsAD = Set.fromList [optA, optD]
+           glickoMap = Map.singleton (optionId optA) 1700.0
+           prefsAD = Set.singleton (optA, optD)
+           stateAD = setupGlickoState optsAD glickoMap prefsAD testUser1
+       scoreAD <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) stateAD
+       scoreAD `shouldBeApprox` 1.0
 
-      -- Prefs: D > A (discordant, since 1500 < 1700)
-      let prefsDA = Set.singleton (optD, optA)
-          uStateDA = (emptyUserState optsAD) { userPreferences = prefsDA }
-          stateDA = mkAppState optsAD [(testUser1, uStateDA)]
-      -- Concordant = 0, Discordant = 1, Total = 1. Score = 0.0
-      scoreDA <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) stateDA
-      scoreDA `shouldBeApprox` 0.0
+       let prefsDA = Set.singleton (optD, optA)
+           stateDA = setupGlickoState optsAD glickoMap prefsDA testUser1
+       scoreDA <- evalAppTest (calculateAgreementScore testUser1 []) (Just defaultTestConfig) stateDA
+       scoreDA `shouldBeApprox` 0.0
 
   describe "restoreUserState" $ do
-    it "correctly restores user state from ratings and preferences" $ do
-      let red    = createOption "red" "Red" ""
-          blue   = createOption "blue" "Blue" ""
-          green  = createOption "green" "Green" ""
-          opts   = Set.fromList [red, blue, green]
-          prefs  = Set.fromList [(red, blue), (blue, green)]
-          ratings = Map.fromList [(optionId red, 1600), (optionId blue, 1500), (optionId green, 1400)]
-          uid    = "user-a"
-          expectedUncompared = Set.fromList [makeCanonicalPair red green]
+    it "correctly restores preferences and resets Glicko players" $ do
+      let opts   = Set.fromList [optA, optB, optC]
+          prefs  = Set.fromList [(optA, optB), (optB, optC)]
+          initialPlayerMap = Map.fromList
+              [ (optionId optA, initialGlickoPlayer { glickoRating = 1600})
+              , (optionId optB, initialGlickoPlayer { glickoRating = 1400})
+              , (optionId optC, initialGlickoPlayer { glickoRating = 1550})
+              ]
+          initialUncomp = Set.singleton (makeCanonicalPair optA optC)
+          startState = setupTestUserState opts Set.empty Set.empty initialUncomp testUser1
+          startStateMod = startState { stateUserStates = Map.adjust (\us -> us { userGlickoPlayers = initialPlayerMap}) testUser1 (stateUserStates startState) }
 
-      stateRef <- IORef.newIORef initialState
-      let config = AppConfig 32.0 1500.0 stateRef
+          expectedUncompared = Set.singleton (makeCanonicalPair optA optC)
+          expectedGlicko = Map.fromSet (const initialGlickoPlayer) (Set.map optionId opts)
 
-      flip MonadReader.runReaderT config $ do
-        modifyStateRef_ $ \s -> s { stateOptions = opts }
+      finalState <- execAppTest (restoreUserState testUser1 prefs) (Just defaultTestConfig) startStateMod
 
-        restoreUserState uid prefs ratings
-        mUserState <- getUserState uid
-
-        case mUserState of
-          Nothing -> MonadReader.liftIO $ expectationFailure "UserState not found"
-          Just us -> do
-            let actualRatings         = userRatings us
-                actualPreferences     = userPreferences us
-                actualUncomparedPairs = userUncomparedPairs us
-                actualViolations      = userViolations us
-
-            MonadReader.liftIO $ actualRatings `shouldBe` ratings
-            MonadReader.liftIO $ actualPreferences `shouldBe` prefs
-            MonadReader.liftIO $ actualUncomparedPairs `shouldBe` expectedUncompared
-            MonadReader.liftIO $ actualViolations `shouldBe` Set.empty
+      case Map.lookup testUser1 (stateUserStates finalState) of
+        Nothing -> expectationFailure "UserState not found after restore"
+        Just us -> do
+          userGlickoPlayers us `shouldBe` expectedGlicko
+          userPreferences us `shouldBe` prefs
+          userUncomparedPairs us `shouldBe` expectedUncompared
+          userViolations us `shouldBe` Set.empty

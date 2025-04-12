@@ -23,7 +23,6 @@ type ConsensusRanking = [(OptionId, Double)]
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | Sequential Rank Agreement (SRA)
--- | Reference: https://arxiv.org/abs/1508.06803
 
 type SRAResult = [(Int, Double)]
 
@@ -40,6 +39,7 @@ variance xs
     m = mean xs
     sumOfSquares = List.foldl' (\acc x -> acc + (x - m) ** 2) 0.0 xs
 
+-- Assumes input list is already sorted by rating descending.
 ratingsToRankMap :: [(Option, Double)] -> RankMap
 ratingsToRankMap sortedRatings =
   Map.fromList $ zipWith (\(opt, _) rank -> (optionId opt, rank)) sortedRatings [1 ..]
@@ -182,7 +182,7 @@ aggregateBorda numOptions userRankMaps =
 aggregateKemenyYoung :: Set.Set OptionId -> UserRankMaps -> ConsensusRanking
 aggregateKemenyYoung allOptionIds userRankMaps
   | Set.null allOptionIds || Map.null userRankMaps = []
-  | otherwise = map (\(oid, rank) -> (oid, fromIntegral rank)) bestRankingList
+  | otherwise = map (\(oid, rank) -> (oid, fromIntegral rank)) bestRankingList -- Return rank as score for consistency? Or distance?
   where
     optionList = Set.toList allOptionIds
     allPermutations = List.permutations optionList
@@ -195,7 +195,7 @@ aggregateKemenyYoung allOptionIds userRankMaps
     -- Calculate Kendall tau distance between two rankings
     kendallTauDistance :: RankMap -> RankMap -> Int
     kendallTauDistance r1 r2 =
-      let pairs = [(o1, o2) | o1 <- optionList, o2 <- optionList, o1 < o2]
+      let pairs = [(o1, o2) | o1 <- optionList, o2 <- optionList, o1 < o2] -- Use OptionId for ordering
           discordantCount = foldl (countDiscordant r1 r2) 0 pairs
       in discordantCount
 
@@ -214,101 +214,16 @@ aggregateKemenyYoung allOptionIds userRankMaps
     evaluatedPermutations :: [(RankMap, Int)]
     evaluatedPermutations = map (\p -> let rm = permutationToRankMap p in (rm, totalDistance rm)) allPermutations
 
+    -- Find the minimum distance among all permutations
+    minDistance :: Int
     minDistance = minimum $ map snd evaluatedPermutations
+    -- Get all permutations that achieve this minimum distance
+    bestRankMaps :: [RankMap]
     bestRankMaps = map fst $ filter ((== minDistance) . snd) evaluatedPermutations
 
     -- Convert the best RankMap back to a sorted list format [(OptionId, Rank)]
-    -- We use the *negative* distance as the score, so higher is better (less distance).
+    -- If there are multiple best rankings (ties), we just pick the first one found.
+    bestRankingList :: [(OptionId, Rank)]
     bestRankingList = case bestRankMaps of
       [] -> [] -- Should not happen if evaluatedPermutations is not empty
       (bestMap:_) -> List.sortBy (Ord.comparing snd) $ Map.toList bestMap
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | Test Main
-
-goldenMain :: IO ()
-goldenMain = do
-  putStrLn "--- SRA Example based on Paper Table 1 ---"
-
-  let optA = createOption "A" "A" ""
-      optB = createOption "B" "B" ""
-      optC = createOption "C" "C" ""
-      optD = createOption "D" "D" ""
-      optE = createOption "E" "E" ""
-
-  let allOptionsSet = Set.fromList [optA, optB, optC, optD, optE]
-  let allOptionIdsSet = Set.map optionId allOptionsSet
-
-  let user1 = "User1" :: UserId
-      user2 = "User2" :: UserId
-      user3 = "User3" :: UserId
-
-  let ranks1 = Map.fromList [(optionId optA, 1), (optionId optB, 2), (optionId optC, 3), (optionId optD, 4), (optionId optE, 5)]
-      ranks2 = Map.fromList [(optionId optA, 1), (optionId optC, 2), (optionId optD, 3), (optionId optB, 4), (optionId optE, 5)]
-      ranks3 = Map.fromList [(optionId optB, 1), (optionId optA, 2), (optionId optE, 3), (optionId optC, 4), (optionId optD, 5)]
-
-  let userRankMapsExample = Map.fromList [(user1, ranks1), (user2, ranks2), (user3, ranks3)]
-  let numOpts = Set.size allOptionIdsSet
-
-  putStrLn "\n--- Rank Aggregation Examples ---"
-
-  putStrLn "\nPlurality:"
-  mapM_ print (aggregatePlurality numOpts userRankMapsExample)
-
-  putStrLn "\nVeto:"
-  mapM_ print (aggregateVeto numOpts userRankMapsExample)
-
-  putStrLn "\nBorda Count:"
-  mapM_ print (aggregateBorda numOpts userRankMapsExample)
-
-  putStrLn "\nKemeny-Young (Ranking):"
-  mapM_ print (aggregateKemenyYoung allOptionIdsSet userRankMapsExample)
-
-  putStrLn "\n--- SRA ---"
-  let sraResult = calculateSRA allOptionsSet userRankMapsExample
-
-  putStrLn "Calculated SRA curve:"
-  mapM_ (\(depth, sra) -> putStrLn $ "Depth " ++ show depth ++ ": SRA = " ++ show sra) sraResult
-
-  putStrLn "\nExpected SRA values (approx):"
-  putStrLn "Depth 1: SRA = 1.155"
-  putStrLn "Depth 2: SRA = 1.106"
-  putStrLn "Depth 3: SRA = 1.095"
-  putStrLn "Depth 4: SRA = 1.095"
-  putStrLn "Depth 5: SRA = 1.095"
-
-testMain :: IO ()
-testMain = do
-  putStrLn "--- SRA Example (Bilateral) ---"
-
-  let optA = createOption "A" "A" ""
-      optB = createOption "B" "B" ""
-      optC = createOption "C" "C" ""
-      optD = createOption "D" "D" ""
-      optE = createOption "E" "E" ""
-
-  let allOptionsSet = Set.fromList [optA, optB, optC, optD, optE]
-
-  let user1 = "User1" :: UserId
-      user2 = "User2" :: UserId
-      user3 = "User3" :: UserId
-
-  let ranks1 = Map.fromList [(optionId optA, 1), (optionId optB, 2), (optionId optC, 3), (optionId optD, 4), (optionId optE, 5)]
-      ranks2 = Map.fromList [(optionId optA, 1), (optionId optC, 2), (optionId optD, 3), (optionId optB, 4), (optionId optE, 5)]
-      ranks3 = Map.fromList [(optionId optB, 1), (optionId optA, 2), (optionId optE, 3), (optionId optC, 4), (optionId optD, 5)]
-
-  let userRankMapsExample12 = Map.fromList [(user1, ranks1), (user2, ranks2)]
-  let userRankMapsExample13 = Map.fromList [(user1, ranks1), (user3, ranks3)]
-  let userRankMapsExample32 = Map.fromList [(user3, ranks3), (user2, ranks2)]
-
-  putStrLn "\nSRA Curve (User 1 vs User 2):"
-  let sraResult12 = calculateSRA allOptionsSet userRankMapsExample12
-  mapM_ (\(depth, sra) -> putStrLn $ "Depth " ++ show depth ++ ": SRA = " ++ show sra) sraResult12
-
-  putStrLn "\nSRA Curve (User 1 vs User 3):"
-  let sraResult13 = calculateSRA allOptionsSet userRankMapsExample13
-  mapM_ (\(depth, sra) -> putStrLn $ "Depth " ++ show depth ++ ": SRA = " ++ show sra) sraResult13
-
-  putStrLn "\nSRA Curve (User 3 vs User 2):"
-  let sraResult32 = calculateSRA allOptionsSet userRankMapsExample32
-  mapM_ (\(depth, sra) -> putStrLn $ "Depth " ++ show depth ++ ": SRA = " ++ show sra) sraResult32

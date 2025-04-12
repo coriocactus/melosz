@@ -40,11 +40,10 @@ launch :: Int -> IO ()
 launch port = do
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
   let config = AppConfig
-        { configKFactor = 32.0
-        , configInitialRating = 1500.0
+        { configSystemTau = 0.5
         , configStateRef = initialStateRef
         }
-  initialConfig <- MonadReader.runReaderT app config
+  initialConfig <- MonadReader.runReaderT colourfulScaffold config
 
   pool <- mkRedisPool
 
@@ -52,9 +51,6 @@ launch port = do
   putStrLn $ "Listening: http://localhost:" ++ show port
 
   Warp.run port (application initialConfig pool)
-  where 
-    app :: App AppConfig
-    app = colourfulScaffold
 
 colourfulScaffold :: App AppConfig
 colourfulScaffold = do
@@ -145,8 +141,8 @@ instance Aeson.ToJSON UserSession
 
 data ComparisonStatus = ComparisonStatus
   { statusProgress    :: (Int, Int, Double)         -- completed, total, percent
-  , statusAgreement   :: Double                     -- percent
-  , statusConsistency :: Double                     -- percent
+  , statusAgreement   :: Double                     -- percent (based on Glicko ratings vs preferences)
+  , statusConsistency :: Double                     -- percent (transitivity score)
   , statusViolations  :: [(Option, Option, Option)] -- cycle violations
   , statusIsComplete  :: Bool
   } deriving (Generics.Generic, Show)
@@ -175,16 +171,15 @@ type CompareAPI = EmptyAPI
 extractHash :: Text.Text -> Maybe Text.Text
 extractHash txt = Text.stripPrefix (Text.pack "MELOSZ ") txt
 
--- TODO TEMP USERS FOR GUEST ACCESS
 initUser :: Maybe AuthHeader -> UserId
 initUser maybeAuth = case maybeAuth of
   Just auth -> case extractHash auth of
     Just hash -> UserId $ TextEnc.encodeUtf8 hash
-    Nothing -> UserId "temp-x"
-  Nothing -> UserId "temp-y"
+    Nothing -> UserId "temp-invalid-auth"
+  Nothing -> UserId "temp-guest"
 
 compareServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server CompareAPI
-compareServant cfg _pool maybeAuth = 
+compareServant cfg _pool maybeAuth =
   let userId = initUser maybeAuth
   in emptyServer
   :<|> handleGetCompareData userId
@@ -192,39 +187,42 @@ compareServant cfg _pool maybeAuth =
   :<|> handleTestCompare userId
   where
     handleTestCompare :: UserId -> Handler NoContent
-    handleTestCompare userId = do
-      MonadIO.liftIO $ putStrLn $ "USER: " ++ show userId
-      exec $ Right NoContent
+    handleTestCompare uid = do
+      MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by USER: " ++ show uid
+      pure NoContent
+
+    fetchAndBuildSession :: UserId -> App (Either ServerError UserSession)
+    fetchAndBuildSession uid = do
+      MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
+      optionsList <- Set.toList <$> getOptions
+      currentRatings <- getUserRatings uid optionsList
+      violationsSet <- getViolationsForUser uid
+      mPair <- getNextComparisonPair uid
+
+      statusData <- gatherStatusData uid currentRatings violationsSet
+
+      MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
+      pure $ Right $ UserSession
+        { usNextPair = mPair
+        , usRankings = currentRatings
+        , usStatus   = statusData
+        }
 
     handleGetCompareData :: UserId -> Handler UserSession
-    handleGetCompareData userId =
+    handleGetCompareData _userId =
       execApp cfg $ do
+        let userId = "coriocactus"
         mUserState <- getUserState userId
         case mUserState of
-          -- TODO handle auth
           Nothing -> do
-            MonadIO.liftIO (putStrLn ("User not found: " ++ show userId))
-            pure $ Left err404
+            MonadIO.liftIO (putStrLn ("User not found, creating: " ++ show userId))
+            setupUser userId
+            fetchAndBuildSession userId
           Just _ -> do
-            MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
-            optionsList <- Set.toList <$> getOptions
-            currentRatings <- getUserRatings userId optionsList
-            violationsSet <- getViolationsForUser userId
-            let violationPairs = findPairsInViolations violationsSet
-
-            mPair <- getNextComparisonPair userId currentRatings violationPairs
-            statusData <- gatherStatusData userId currentRatings violationsSet
-
-            MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
-            pure $ Right $ UserSession
-                { usNextPair = mPair
-                , usRankings = currentRatings
-                , usStatus   = statusData
-                }
+            fetchAndBuildSession userId
 
     handlePostCompare :: UserId -> ComparisonSubmission -> Handler UserSession
     handlePostCompare userId submission = do
-
       let winnerId = csWinnerId submission
           loserId  = csLoserId submission
 
@@ -239,18 +237,7 @@ compareServant cfg _pool maybeAuth =
             updateRatings userId winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
 
-            optionsList <- Set.toList <$> getOptions
-            updatedRatings <- getUserRatings userId optionsList
-            updatedViolationsSet <- getViolationsForUser userId
-            let updatedViolationPairs = findPairsInViolations updatedViolationsSet
-            updatedPair <- getNextComparisonPair userId updatedRatings updatedViolationPairs
-            updatedStatusData <- gatherStatusData userId updatedRatings updatedViolationsSet
-
-            pure $ Right $ UserSession
-                { usNextPair = updatedPair
-                , usRankings = updatedRatings
-                , usStatus   = updatedStatusData
-                }
+            fetchAndBuildSession userId
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
             pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })

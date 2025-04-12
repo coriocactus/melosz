@@ -14,11 +14,15 @@ setupOption newOption = do
   Monad.unless alreadyExists $ do
     let existingOptions = stateOptions currentState
         pairsToAdd = Set.map (makeCanonicalPair newOption) (Set.delete newOption existingOptions)
+        newOptionId = optionId newOption
 
     modifyStateRef_ $ \s ->
       let updatedOptions = Set.insert newOption (stateOptions s)
-          updateUserState _ us = us { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us) }
-          updatedUserStates = Map.mapWithKey updateUserState (stateUserStates s)
+          updateUserState us = us
+              { userUncomparedPairs = Set.union pairsToAdd (userUncomparedPairs us)
+              , userGlickoPlayers = Map.insert newOptionId initialGlickoPlayer (userGlickoPlayers us)
+              }
+          updatedUserStates = Map.map updateUserState (stateUserStates s)
       in s { stateOptions = updatedOptions, stateUserStates = updatedUserStates }
 
 setupUser :: UserId -> App ()

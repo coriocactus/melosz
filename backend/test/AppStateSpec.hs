@@ -40,9 +40,10 @@ spec = describe "AppState" $ do
       Set.size (getAllOptionPairsSet options) `shouldBe` expectedCount
 
   describe "initialUserState" $ do
-    it "initializes with empty ratings, prefs, violations" $ do
+    it "initializes with default GlickoPlayers, empty prefs/violations" $ do
       let uState = initialUserState allTestOptionsSet
-      userRatings uState `shouldBe` Map.empty
+          expectedGlickoMap = Map.fromSet (const initialGlickoPlayer) (Set.map optionId allTestOptionsSet)
+      userGlickoPlayers uState `shouldBe` expectedGlickoMap
       userPreferences uState `shouldBe` Set.empty
       userViolations uState `shouldBe` Set.empty
 
@@ -56,6 +57,19 @@ spec = describe "AppState" $ do
       users <- evalAppTest getUsers Nothing initialState
       users `shouldBe` Set.empty
     it "returns set of users present in stateUserStates" $ do
-      let state = initialState { stateUserStates = Map.fromList [(testUser1, initialUserState Set.empty), (testUser2, initialUserState Set.empty)] }
+      let state = initialState { stateUserStates = Map.fromList [(testUser1, simpleUserState Set.empty), (testUser2, simpleUserState Set.empty)] }
       users <- evalAppTest getUsers Nothing state
       users `shouldBe` Set.fromList [testUser1, testUser2]
+
+  describe "getGlickoPlayer'" $ do
+    it "returns initial player for unknown user/option" $ do
+      player <- evalAppTest (getGlickoPlayer' testUser1 (optionId optA)) Nothing initialState
+      player `shouldBe` initialGlickoPlayer
+
+    it "returns specific player when set in user state" $ do
+      let customPlayer = initialGlickoPlayer { glickoRating = 1600 }
+          glickoMap = Map.singleton (optionId optA) customPlayer
+          uState = (simpleUserState allTestOptionsSet) { userGlickoPlayers = glickoMap }
+          state = mkAppState allTestOptionsSet [(testUser1, uState)]
+      player <- evalAppTest (getGlickoPlayer' testUser1 (optionId optA)) Nothing state
+      player `shouldBe` customPlayer

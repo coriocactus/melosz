@@ -1,3 +1,4 @@
+-- File: Types.hs
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -48,6 +49,37 @@ instance Aeson.ToJSON Option where
     , "src" Aeson..= TextEnc.decodeUtf8 (optionSrc opt)
     ]
 
+data GlickoPlayer = GlickoPlayer
+  { glickoRating     :: Double -- mu
+  , glickoDeviation  :: Double -- delta
+  , glickoVolatility :: Double -- sigma
+  } deriving (Show, Eq, Generics.Generic)
+
+instance Aeson.ToJSON GlickoPlayer where
+  toJSON gp = Aeson.object
+    [ "rating"     Aeson..= glickoRating gp
+    , "deviation"  Aeson..= glickoDeviation gp
+    , "volatility" Aeson..= glickoVolatility gp
+    ]
+
+instance Aeson.FromJSON GlickoPlayer where
+  parseJSON = Aeson.withObject "GlickoPlayer" $ \v -> GlickoPlayer
+    <$> v Aeson..: "rating"
+    <*> v Aeson..: "deviation"
+    <*> v Aeson..: "volatility"
+
+defaultRating :: Double
+defaultRating = 1500.0
+
+defaultDeviation :: Double
+defaultDeviation = 350.0
+
+defaultVolatility :: Double
+defaultVolatility = 0.06
+
+initialGlickoPlayer :: GlickoPlayer
+initialGlickoPlayer = GlickoPlayer defaultRating defaultDeviation defaultVolatility
+
 type Relation = Set.Set (Option, Option)
 
 data MatchResult = Win | Loss
@@ -75,3 +107,7 @@ makeCanonicalPair o1 o2
 flipResult :: MatchResult -> MatchResult
 flipResult Win  = Loss
 flipResult Loss = Win
+
+matchResultToScore :: MatchResult -> Double
+matchResultToScore Win = 1.0
+matchResultToScore Loss = 0.0

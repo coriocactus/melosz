@@ -50,8 +50,7 @@ runner :: Int -> App AppConfig -> IO ()
 runner port app = do
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
   let config = AppConfig
-        { configKFactor = 32.0
-        , configInitialRating = 1500.0
+        { configSystemTau = 0.5
         , configStateRef = initialStateRef
         }
   initialConfig <- MonadReader.runReaderT app config
@@ -85,7 +84,6 @@ application cfg = notFoundMiddleware (Servant.serve butler (servants cfg))
 type API = Servant.EmptyAPI
   :<|> HomeAPI
   :<|> CompareAPI
-  :<|> StaticAPI
 
 butler :: Servant.Proxy API
 butler = Servant.Proxy
@@ -94,7 +92,6 @@ servants :: AppConfig -> Servant.Server API
 servants cfg = Servant.emptyServer
   :<|> homeServant cfg
   :<|> compareServant cfg
-  :<|> staticServant cfg
 
 notFoundMiddleware :: Wai.Middleware
 notFoundMiddleware app req respond = app req $ \response ->
@@ -127,6 +124,7 @@ homeServant _cfg = Servant.emptyServer
     handleHome :: Servant.Handler H.Html
     handleHome = do
       MonadIO.liftIO $ putStrLn "Serving /"
+      -- Default to user 'coriocactus' for the home redirect
       let userUrl = Servant.safeLink butler compareGetButler (Text.pack "coriocactus")
       throwRedirect userUrl
 
@@ -134,17 +132,18 @@ throwRedirect :: Servant.Link -> Servant.Handler a
 throwRedirect link =
   Servant.throwError Servant.err302 { Servant.errHeaders = [("Location", location)] }
   where
+    -- Construct absolute path for redirect
     location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ (Servant.uriPath $ Servant.linkURI link)
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | SERVANT: COMPARE
 
-data ComparisonStatus = ComparisonStatus
-  { statusProgress :: (Int, Int, Double)
-  , statusAgreement :: Double
-  , statusConsistency :: Double
-  , statusViolations :: [(Option, Option, Option)]
-  , statusIsComplete :: Bool
+data HtmlComparisonStatus = HtmlComparisonStatus
+  { htmlStatusProgress :: (Int, Int, Double)
+  , htmlStatusAgreement :: Double
+  , htmlStatusConsistency :: Double
+  , htmlStatusViolations :: [(Option, Option, Option)]
+  , htmlStatusIsComplete :: Bool
   }
 
 data ChooseFormData = ChooseFormData
@@ -172,6 +171,17 @@ compareServant cfg = Servant.emptyServer
   :<|> handleGetCompare
   :<|> handlePostCompare
   where
+    fetchAndRenderComparePage :: UserId -> App H.Html
+    fetchAndRenderComparePage userId = do
+      MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
+      optionsList <- Set.toList <$> getOptions
+      currentRatings <- getUserRatings userId optionsList
+      violationsSet <- getViolationsForUser userId
+      mPair <- getNextComparisonPair userId
+      statusData <- gatherHtmlStatusData userId currentRatings violationsSet
+      MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
+      pure $ mkComparePage userId mPair currentRatings statusData
+
     handleGetCompare :: Text.Text -> Servant.Handler H.Html
     handleGetCompare userIdText = do
       MonadIO.liftIO $ putStrLn $ "Serving /compare/" ++ Text.unpack userIdText
@@ -179,20 +189,12 @@ compareServant cfg = Servant.emptyServer
       runApp cfg $ do
         mUserState <- getUserState userId
         case mUserState of
-          Nothing -> MonadIO.liftIO $ putStrLn ("User not found: " ++ show userId) >> pure (mkErrorPage "User not found")
+          Nothing -> do
+            MonadIO.liftIO $ putStrLn ("User not found, creating: " ++ show userId)
+            setupUser userId
+            fetchAndRenderComparePage userId
           Just _ -> do
-            MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
-            optionsList <- Set.toList <$> getOptions
-            currentRatings <- getUserRatings userId optionsList
-            violationsSet <- getViolationsForUser userId
-            let violationPairs = findPairsInViolations violationsSet
-
-            mPair <- getNextComparisonPair userId currentRatings violationPairs
-
-            statusData <- gatherStatusData userId currentRatings violationsSet
-
-            MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
-            pure $ mkComparePage userId mPair currentRatings statusData
+            fetchAndRenderComparePage userId
 
     handlePostCompare :: Text.Text -> ChooseFormData -> Servant.Handler Servant.NoContent
     handlePostCompare userIdText formData = do
@@ -220,15 +222,15 @@ compareServant cfg = Servant.emptyServer
       MonadIO.liftIO $ putStrLn $ "Redirecting to: " ++ Text.unpack redirectUrlPath
       Servant.throwError Servant.err303 { Servant.errHeaders = [("Location", TextEnc.encodeUtf8 redirectUrlPath)] }
 
-mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> ComparisonStatus -> H.Html
+mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> HtmlComparisonStatus -> H.Html
 mkComparePage userId mPair rankings status =
   pageLayout ("Comparison for " <> TextEnc.decodeUtf8 (unUserId userId)) $ do
     case mPair of
       Just (opt1, opt2) -> mkComparisonSection userId opt1 opt2
       Nothing ->
-        case statusIsComplete status of
+        case htmlStatusIsComplete status of
           True -> H.div H.! A.class_ "completion-message" $ "Ranking complete and consistent!"
-          False -> H.div H.! A.class_ "completion-message" $ "No more pairs to compare based on current strategy."
+          False -> H.div H.! A.class_ "completion-message" $ "No more pairs to compare based on current strategy, but violations might exist."
 
     H.div H.! A.class_ "results-grid" $ do
       H.div H.! A.class_ "rankings-section" $ do
@@ -246,19 +248,21 @@ mkComparisonSection userId opt1 opt2 = do
       postUrl = H.textValue $ Text.pack $ "/compare/" ++ Text.unpack uidText
 
   H.div H.! A.class_ "comparison-box" $ do
-    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
-      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
-      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
-      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
-        H.toHtml (BSC.unpack $ optionName opt1)
+    H.h3 "Which do you prefer?" H.! A.style "width: 100%; text-align: center; margin-bottom: 1em;"
+    H.div H.! A.style "display: flex; justify-content: space-around; width: 100%;" $ do
+      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
+        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
+        H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+          H.toHtml (BSC.unpack $ optionName opt1)
 
-    H.span H.! A.style "margin: 0 1em;" $ " OR "
+      H.span H.! A.style "align-self: center; font-weight: bold;" $ " OR "
 
-    H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
-      H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
-      H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
-      H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
-        H.toHtml (BSC.unpack $ optionName opt2)
+      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
+        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
+        H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+          H.toHtml (BSC.unpack $ optionName opt2)
 
 mkRankingsTable :: [(Option, Double)] -> H.Html
 mkRankingsTable sortedRatings = H.table $ do
@@ -273,26 +277,30 @@ mkRankingsTable sortedRatings = H.table $ do
     mkRankingRow (rank, (opt, rating)) = H.tr $ do
       H.td $ H.toHtml rank
       H.td $ H.toHtml (BSC.unpack $ optionName opt)
-      H.td $ H.toHtml (Printf.printf "%.2f" rating :: String)
+      H.td $ H.toHtml (Printf.printf "%.1f" rating :: String)
 
-mkStatusSection :: ComparisonStatus -> H.Html
+mkStatusSection :: HtmlComparisonStatus -> H.Html
 mkStatusSection status = do
-  let (completed, total, percent) = statusProgress status
+  let (completed, total, percent) = htmlStatusProgress status
       progressStr = Printf.printf "Progress: %d/%d pairs compared (%.1f%%)" completed total percent :: String
-      agreementStr = Printf.printf "Agreement (vs ELO): %.2f%%" (statusAgreement status) :: String
-      consistencyStr = Printf.printf "Consistency (Transitivity): %.2f%%" (statusConsistency status) :: String
+      agreementStr = Printf.printf "Agreement (vs Glicko): %.1f%%" (htmlStatusAgreement status) :: String
+      consistencyStr = Printf.printf "Consistency (Transitivity): %.1f%%" (htmlStatusConsistency status) :: String
 
   H.p $ H.toHtml progressStr
   H.p $ H.toHtml agreementStr
   H.p $ H.toHtml consistencyStr
 
-  if null (statusViolations status)
+  if null (htmlStatusViolations status)
     then H.p "No transitivity violations."
     else do
-      let violationsStr = Printf.printf "Detected %d transitivity violation(s):" (length $ statusViolations status) :: String
+      let violationsCount = length $ htmlStatusViolations status
+          violationsStr = Printf.printf "Detected %d transitivity violation(s):" violationsCount :: String
       H.p $ H.toHtml violationsStr
       H.ul H.! A.class_ "violation-list" $ do
-        mapM_ (H.li . H.toHtml . formatViolationHtml) (statusViolations status)
+        mapM_ (H.li . H.toHtml . formatViolationHtml) (take 5 $ htmlStatusViolations status)
+        if violationsCount > 5
+          then H.li $ H.toHtml ("...and " ++ show (violationsCount - 5) ++ " more.")
+          else pure ()
 
 getOptionById :: OptionId -> App (Maybe Option)
 getOptionById oidToFind = do
@@ -301,13 +309,13 @@ getOptionById oidToFind = do
 
 formatViolationHtml :: (Option, Option, Option) -> String
 formatViolationHtml (a, c, b) =
-  Printf.printf "%s > %s, %s > %s, but %s > %s"
-    (BSC.unpack $ optionName a) (BSC.unpack $ optionName b)
-    (BSC.unpack $ optionName b) (BSC.unpack $ optionName c)
-    (BSC.unpack $ optionName c) (BSC.unpack $ optionName a)
+  Printf.printf "Cycle involving %s, %s, %s"
+    (BSC.unpack $ optionName a)
+    (BSC.unpack $ optionName b)
+    (BSC.unpack $ optionName c)
 
-gatherStatusData :: UserId -> [(Option, Double)] -> Set.Set (Option, Option, Option) -> App ComparisonStatus
-gatherStatusData uid ratings violationsSet = do
+gatherHtmlStatusData :: UserId -> [(Option, Double)] -> Set.Set (Option, Option, Option) -> App HtmlComparisonStatus
+gatherHtmlStatusData uid ratings violationsSet = do
   optionsCount <- Set.size <$> getOptions
   uncomparedSet <- getUncomparedPairsForUser uid
 
@@ -320,23 +328,13 @@ gatherStatusData uid ratings violationsSet = do
   transitivityScore <- calculateTransitivityScore uid
   isComplete <- checkIfComplete uid
 
-  pure $ ComparisonStatus
-    { statusProgress = (completedPairs, totalPossiblePairs, progressPercent)
-    , statusAgreement = agreementScore * 100.0
-    , statusConsistency = transitivityScore * 100.0
-    , statusViolations = violationsList
-    , statusIsComplete = isComplete && Set.null violationsSet
+  pure $ HtmlComparisonStatus
+    { htmlStatusProgress = (completedPairs, totalPossiblePairs, progressPercent)
+    , htmlStatusAgreement = agreementScore * 100.0
+    , htmlStatusConsistency = transitivityScore * 100.0
+    , htmlStatusViolations = violationsList
+    , htmlStatusIsComplete = isComplete && Set.null violationsSet
     }
-
--- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
--- | SERVANT: STATIC
-
-type StaticAPI =
-  "static" :> Servant.Raw
-
-staticServant :: AppConfig -> Servant.Server StaticAPI
-staticServant _cfg =
-  Servant.serveDirectoryWebApp "static"
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | BLAZE TEMPLATES
@@ -358,25 +356,34 @@ pageHead title more = H.head $ do
 
 styleSheet :: H.Html
 styleSheet = H.toHtml (Text.unlines
-  [ "body { font-family: sans-serif; margin: 2em; }"
-  , ".container { max-width: 800px; margin: auto; padding: 1em; border: 1px solid #ccc; border-radius: 5px; }"
-  , ".comparison-box { border: 1px solid #eee; padding: 1em; margin-bottom: 1em; display: flex; justify-content: center; align-items: center; }"
+  [ "body { font-family: sans-serif; margin: 2em; background-color: #f8f8f8; color: #333; }"
+  , ".container { max-width: 800px; margin: auto; padding: 2em; background-color: #fff; border: 1px solid #ccc; border-radius: 8px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }"
+  , "h1 { text-align: center; color: #333; margin-bottom: 1em; }"
+  , "h2 { color: #555; border-bottom: 1px solid #eee; padding-bottom: 0.3em; margin-top: 1.5em; }"
+  , "h3 { text-align: center; color: #666; margin-bottom: 1em; }"
+  , ".comparison-box { border: 1px solid #ddd; padding: 1.5em; margin-bottom: 2em; display: flex; flex-direction: column; align-items: center; background-color: #fdfdfd; border-radius: 5px; }"
   , ".option-form { display: inline-block; margin: 0; }"
-  , ".option-button { padding: 1em 2em; text-decoration: none; background-color: #eee; border: 1px solid #ccc; border-radius: 4px; color: black; font-size: inherit; cursor: pointer; }"
-  , ".option-button:hover { background-color: #ddd; }"
-  , ".results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2em; margin-top: 2em; }"
-  , "table { border-collapse: collapse; width: 100%; }"
-  , "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }"
-  , "th { background-color: #f2f2f2; }"
-  , ".status-section, .rankings-section { border: 1px solid #eee; padding: 1em; }"
-  , ".violation-list li { color: red; margin-bottom: 0.5em; }"
-  , ".completion-message { color: green; font-weight: bold; text-align: center; padding: 2em; }"
+  , ".option-button { min-width: 120px; padding: 0.8em 1.5em; text-decoration: none; background-color: #e7e7e7; border: 1px solid #ccc; border-radius: 4px; color: black; font-size: 1.1em; cursor: pointer; transition: background-color 0.2s ease; }"
+  , ".option-button:hover { background-color: #d0d0d0; }"
+  , ".results-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2em; margin-top: 2em; }"
+  , "table { border-collapse: collapse; width: 100%; margin-bottom: 1em; }"
+  , "th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }"
+  , "th { background-color: #f2f2f2; font-weight: bold; }"
+  , "tr:nth-child(even) { background-color: #f9f9f9; }"
+  , "td:first-child { text-align: center; font-weight: bold; }"
+  , ".status-section, .rankings-section { border: 1px solid #ddd; padding: 1.5em; background-color: #fdfdfd; border-radius: 5px; }"
+  , ".status-section p { margin-bottom: 0.8em; line-height: 1.4; }"
+  , ".violation-list { padding-left: 20px; margin-top: 0.5em; }"
+  , ".violation-list li { color: #c00; margin-bottom: 0.5em; font-size: 0.9em; }"
+  , ".completion-message { color: #080; font-weight: bold; text-align: center; padding: 2em; background-color: #e8f8e8; border: 1px solid #b8d8b8; border-radius: 5px; margin-top: 2em; }"
+  , "a { color: #007bff; text-decoration: none; }"
+  , "a:hover { text-decoration: underline; }"
   ])
 
 mkErrorPage :: String -> H.Html
 mkErrorPage errorMsg = pageLayout "Error" $ do
   H.h2 "An Error Occurred"
-  H.p H.! A.style "color: red;" $ H.toHtml errorMsg
+  H.p H.! A.style "color: #c00; font-weight: bold;" $ H.toHtml errorMsg
   H.p $ H.a H.! A.href "/" $ "Go back home"
 
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
