@@ -2,10 +2,11 @@
 
 module PreferenceSpec where
 
-import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
-
 import Test.Hspec
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import qualified Control.Monad.Reader as MonadReader
+import qualified Data.IORef as IORef
 
 import Types
 import AppState
@@ -22,8 +23,6 @@ spec = describe "Preference" $ do
       emptyUserState options = initialUserState options
       allOptions = allTestOptionsSet
       setupUser user opts uState = mkAppState opts [(user, uState)]
-
-  let defaultTestConfigData = AppConfigData { configDataKFactor = 32.0, configDataInitialRating = 1500.0 }
 
   describe "isPreferred" $ do
     it "returns True if preference exists" $ isPreferred optA optB prefAB `shouldBe` True
@@ -219,21 +218,21 @@ spec = describe "Preference" $ do
     it "returns 1.0 (max agreement) when no preferences exist" $ do
       let uState = emptyUserState opts3
           state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) state
+      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
     it "returns 1.0 (max agreement) when preferences perfectly match Elo order" $ do
       let prefs = Set.fromList [(optA, optB), (optA, optC), (optB, optC)]
           uState = (emptyUserState opts3) { userPreferences = prefs }
           state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) state
+      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
     it "returns 0.0 (max disagreement) when preferences perfectly oppose Elo order" $ do
       let prefs = Set.fromList [(optC, optB), (optC, optA), (optB, optA)]
           uState = (emptyUserState opts3) { userPreferences = prefs }
           state = mkAppState opts3 [(testUser1, uState)]
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) state
+      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
       score `shouldBeApprox` 0.0
 
     it "returns 0.5 (no correlation) for mixed preferences" $ do
@@ -244,7 +243,7 @@ spec = describe "Preference" $ do
       -- Concordant = 1, Discordant = 1, Total = 2
       -- Tau = (1 - 1) / 2 = 0
       -- Score = (0 + 1) / 2 = 0.5
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) state
+      score <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) state
       score `shouldBeApprox` 0.5
 
     it "handles ties in Elo ratings (counts as neither concordant nor discordant)" $ do
@@ -256,7 +255,7 @@ spec = describe "Preference" $ do
       -- Concordant = 2, Discordant = 0, Total = 2
       -- Tau = (2 - 0) / 2 = 1
       -- Score = (1 + 1) / 2 = 1.0
-      score <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfigData) state
+      score <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfig) state
       score `shouldBeApprox` 1.0
 
       -- Prefs: A > B (tie in elo, ignored)
@@ -266,7 +265,7 @@ spec = describe "Preference" $ do
       -- Concordant = 0, Discordant = 0, Total = 1
       -- Tau = (0 - 0) / 1 = 0
       -- Score = (0 + 1) / 2 = 0.5
-      scoreAB <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfigData) stateAB
+      scoreAB <- evalAppTest (calculateAgreementScore testUser1 eloRankTies) (Just defaultTestConfig) stateAB
       scoreAB `shouldBeApprox` 0.5
 
     it "uses initial rating for options not present in the Elo list" $ do
@@ -277,7 +276,7 @@ spec = describe "Preference" $ do
           uStateAD = (emptyUserState optsAD) { userPreferences = prefsAD }
           stateAD = mkAppState optsAD [(testUser1, uStateAD)]
       -- Concordant = 1, Discordant = 0, Total = 1. Score = 1.0
-      scoreAD <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) stateAD
+      scoreAD <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) stateAD
       scoreAD `shouldBeApprox` 1.0
 
       -- Prefs: D > A (discordant, since 1500 < 1700)
@@ -285,5 +284,38 @@ spec = describe "Preference" $ do
           uStateDA = (emptyUserState optsAD) { userPreferences = prefsDA }
           stateDA = mkAppState optsAD [(testUser1, uStateDA)]
       -- Concordant = 0, Discordant = 1, Total = 1. Score = 0.0
-      scoreDA <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfigData) stateDA
+      scoreDA <- evalAppTest (calculateAgreementScore testUser1 eloRankPerfect) (Just defaultTestConfig) stateDA
       scoreDA `shouldBeApprox` 0.0
+
+  describe "restoreUserState" $ do
+    it "correctly restores user state from ratings and preferences" $ do
+      let red    = createOption "red" "Red" ""
+          blue   = createOption "blue" "Blue" ""
+          green  = createOption "green" "Green" ""
+          opts   = Set.fromList [red, blue, green]
+          prefs  = Set.fromList [(red, blue), (blue, green)]
+          ratings = Map.fromList [(optionId red, 1600), (optionId blue, 1500), (optionId green, 1400)]
+          uid    = "user-a"
+          expectedUncompared = Set.fromList [makeCanonicalPair red green]
+
+      stateRef <- IORef.newIORef initialState
+      let config = AppConfig 32.0 1500.0 stateRef
+
+      flip MonadReader.runReaderT config $ do
+        modifyStateRef_ $ \s -> s { stateOptions = opts }
+
+        restoreUserState uid prefs ratings
+        mUserState <- getUserState uid
+
+        case mUserState of
+          Nothing -> MonadReader.liftIO $ expectationFailure "UserState not found"
+          Just us -> do
+            let actualRatings         = userRatings us
+                actualPreferences     = userPreferences us
+                actualUncomparedPairs = userUncomparedPairs us
+                actualViolations      = userViolations us
+
+            MonadReader.liftIO $ actualRatings `shouldBe` ratings
+            MonadReader.liftIO $ actualPreferences `shouldBe` prefs
+            MonadReader.liftIO $ actualUncomparedPairs `shouldBe` expectedUncompared
+            MonadReader.liftIO $ actualViolations `shouldBe` Set.empty

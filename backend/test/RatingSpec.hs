@@ -15,9 +15,9 @@ import TestUtils
 
 spec :: Spec
 spec = describe "Rating" $ do
-  let testConfigData = AppConfigData { configDataKFactor = 32.0, configDataInitialRating = 1500.0 }
-      k = configDataKFactor testConfigData
-      initial = configDataInitialRating testConfigData
+  let testConfig = defaultTestConfig
+      k = testConfigKFactor testConfig
+      initial = testConfigInitialRating testConfig
       testOpts = Set.fromList [optA, optB, optC]
       mkInitialState ratingsMap = mkAppState testOpts [(testUser1, (initialUserState testOpts) { userRatings = ratingsMap })]
 
@@ -47,23 +47,23 @@ spec = describe "Rating" $ do
   describe "getUserRating" $ do
     it "returns initial rating for unknown user/option within user state" $ do
       let state = mkInitialState Map.empty
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) state
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) state
       rating `shouldBe` initial
 
     it "returns initial rating if user does not exist" $ do
       -- testUser1 does not exist in initialState
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) initialState
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) initialState
       rating `shouldBe` initial
 
     it "returns specific rating when set in user state" $ do
       let state = mkInitialState (Map.singleton (optionId optA) 1550.0)
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigData) state
+      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfig) state
       rating `shouldBe` 1550.0
 
   describe "getUserRatings" $ do
      it "returns initial ratings sorted descending for multiple options" $ do
       let state = mkInitialState Map.empty
-      ratings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfigData) state
+      ratings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfig) state
       map snd ratings `shouldBe` replicate 3 initial
       -- Order might not be guaranteed if ratings are equal, check content
       Set.fromList (map fst ratings) `shouldBe` Set.fromList [optA, optB, optC]
@@ -75,7 +75,7 @@ spec = describe "Rating" $ do
               , (optionId optC, 1650.0)
               ]
            state = mkInitialState ratingsMap
-       sortedRatings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfigData) state
+       sortedRatings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfig) state
        map fst sortedRatings `shouldBe` [optC, optA, optB]
        map snd sortedRatings `shouldBe` [1650.0, 1600.0, 1500.0]
 
@@ -86,7 +86,7 @@ spec = describe "Rating" $ do
           expectedB = calculateExpectedScore initial initial -- 0.5
           newRatingA = initial + k * (1.0 - expectedA) -- 1516
           newRatingB = initial + k * (0.0 - expectedB) -- 1484
-      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigData) state
+      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfig) state
       let finalRatings = userRatings $ stateUserStates finalState Map.! testUser1
 
       Map.lookup (optionId optA) finalRatings `shouldBe` Just newRatingA
@@ -98,7 +98,7 @@ spec = describe "Rating" $ do
           expectedB = calculateExpectedScore initial initial -- 0.5
           newRatingA = initial + k * (0.0 - expectedA) -- 1484
           newRatingB = initial + k * (1.0 - expectedB) -- 1516
-      finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfigData) state
+      finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfig) state
       let finalRatings = userRatings $ stateUserStates finalState Map.! testUser1
 
       Map.lookup (optionId optA) finalRatings `shouldBe` Just newRatingA
@@ -106,7 +106,7 @@ spec = describe "Rating" $ do
 
     it "does not modify state if user does not exist" $ do
        let state = initialState -- No users
-       finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigData) state
+       finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfig) state
        stateUserStates finalState `shouldBe` Map.empty
 
   describe "ratingsToMap" $ do

@@ -13,40 +13,40 @@ import Test.Hspec (Expectation, expectationFailure)
 import Types
 import AppState
 
-data AppConfigData = AppConfigData
-  { configDataKFactor :: Double
-  , configDataInitialRating :: Double
+data AppTestConfig = AppTestConfig
+  { testConfigKFactor :: Double
+  , testConfigInitialRating :: Double
   }
 
-defaultConfigData :: AppConfigData
-defaultConfigData = AppConfigData
-  { configDataKFactor = 32.0
-  , configDataInitialRating = 1500.0
+defaultTestConfig :: AppTestConfig
+defaultTestConfig = AppTestConfig
+  { testConfigKFactor = 32.0
+  , testConfigInitialRating = 1500.0
   }
 
-evalAppTest :: App a -> Maybe AppConfigData -> AppState -> IO a
-evalAppTest action mConfigData initState =
-  fst <$> runAppTest action mConfigData initState
+evalAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO a
+evalAppTest action mTestConfig initState =
+  fst <$> runAppTest action mTestConfig initState
 
-execAppTest :: App a -> Maybe AppConfigData -> AppState -> IO AppState
-execAppTest action mConfigData initState = do
+execAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO AppState
+execAppTest action mTestConfig initState = do
   ref <- IORef.newIORef initState
-  (_, finalRef) <- runAppTestRef action mConfigData ref
+  (_, finalRef) <- runAppTestRef action mTestConfig ref
   IORef.readIORef finalRef
 
-runAppTest :: App a -> Maybe AppConfigData -> AppState -> IO (a, AppState)
-runAppTest action mConfigData initState = do
-   ref <- IORef.newIORef initState
-   (result, finalRef) <- runAppTestRef action mConfigData ref
-   finalState <- IORef.readIORef finalRef
-   pure (result, finalState)
+runAppTest :: App a -> Maybe AppTestConfig -> AppState -> IO (a, AppState)
+runAppTest action mTestConfig initState = do
+  ref <- IORef.newIORef initState
+  (result, finalRef) <- runAppTestRef action mTestConfig ref
+  finalState <- IORef.readIORef finalRef
+  pure (result, finalState)
 
-runAppTestRef :: App a -> Maybe AppConfigData -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
-runAppTestRef action mConfigData stateRef = do
-  let configData = Maybe.fromMaybe defaultConfigData mConfigData
+runAppTestRef :: App a -> Maybe AppTestConfig -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
+runAppTestRef action mTestConfig stateRef = do
+  let testConfig = Maybe.fromMaybe defaultTestConfig mTestConfig
       config = AppConfig
-        { configKFactor = configDataKFactor configData
-        , configInitialRating = configDataInitialRating configData
+        { configKFactor = testConfigKFactor testConfig
+        , configInitialRating = testConfigInitialRating testConfig
         , configStateRef = stateRef
         }
   result <- MonadReader.runReaderT action config
