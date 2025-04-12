@@ -27,6 +27,19 @@ data AppConfig = AppConfig
 getConfig :: App AppConfig
 getConfig = MonadReader.ask
 
+-- === Global Application State ===
+
+data AppState = AppState
+  { stateOptions :: Set.Set Option
+  , stateUserStates :: Map.Map UserId UserState
+  } deriving (Show, Eq)
+
+initialState :: AppState
+initialState = AppState
+  { stateOptions = Set.empty
+  , stateUserStates = Map.empty
+  }
+
 -- === User State ===
 
 data UserState = UserState
@@ -42,19 +55,6 @@ initialUserState options = UserState
   , userPreferences = Set.empty
   , userViolations = Set.empty
   , userUncomparedPairs = getAllOptionPairsSet options
-  }
-
--- === Global Application State ===
-
-data AppState = AppState
-  { stateOptions :: Set.Set Option
-  , stateUserStates :: Map.Map UserId UserState
-  } deriving (Show, Eq)
-
-initialState :: AppState
-initialState = AppState
-  { stateOptions = Set.empty
-  , stateUserStates = Map.empty
   }
 
 -- === State Accessors ===
