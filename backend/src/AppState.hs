@@ -1,5 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 module AppState where
 
 import qualified Control.Monad.Reader as MonadReader
@@ -12,11 +10,11 @@ import qualified Data.IORef as IORef
 
 import Types
 
--- === Application Monad ===
+-- application monad
 
 type App = MonadReader.ReaderT AppConfig IO
 
--- === Configuration ===
+-- configuration
 
 data AppConfig = AppConfig
   { configSystemTau :: Double
@@ -26,7 +24,7 @@ data AppConfig = AppConfig
 getConfig :: App AppConfig
 getConfig = MonadReader.ask
 
--- === Global Application State ===
+-- global application state
 
 data AppState = AppState
   { stateOptions :: Set.Set Option
@@ -39,7 +37,7 @@ initialState = AppState
   , stateUserStates = Map.empty
   }
 
--- === User State ===
+-- user state
 
 data UserState = UserState
   { userGlickos :: Map.Map OptionId Glicko
@@ -56,7 +54,7 @@ initialUserState options = UserState
   , userUncomparedPairs = getAllOptionPairsSet options
   }
 
--- === State Accessors ===
+-- state accessors
 
 readCurrentState :: App AppState
 readCurrentState = do
@@ -92,7 +90,7 @@ getUncomparedPairsForUser userId = userUncomparedPairs <$> getUserState' userId
 getViolationsForUser :: UserId -> App (Set.Set (Option, Option, Option))
 getViolationsForUser userId = userViolations <$> getUserState' userId
 
--- === Utility ===
+-- utility
 
 getAllOptionPairsSet :: Set.Set Option -> Set.Set (Option, Option)
 getAllOptionPairsSet options = Set.fromList $ do
