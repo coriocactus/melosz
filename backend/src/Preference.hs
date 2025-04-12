@@ -2,10 +2,8 @@ module Preference where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.Reader as MonadReader
-import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Text.Printf as Printf
 
 import Types
 import AppState
@@ -143,19 +141,6 @@ recordComparison userId opt1 opt2 result = do
 
           updatedUserStates = Map.insert userId updatedUserState (stateUserStates s)
         in s { stateUserStates = updatedUserStates }
-
-  currentState <- readCurrentState
-  case Map.lookup userId (stateUserStates currentState) of
-    Nothing -> pure ()
-    Just uState -> do
-      let (winner, loser) = case result of { Win -> (opt1, opt2); Loss -> (opt2, opt1) }
-      let reversePref = (loser, winner)
-      Monad.when (not (Set.member reversePref (userPreferences uState)) && Set.member (winner, loser) (userPreferences uState)) $
-        MonadIO.liftIO $ Monad.when (isPreferred loser winner (userPreferences uState)) $
-          putStrLn $ "Info: Preference potentially reversed for user " ++ show userId ++ ": " ++ show (optionName winner) ++ " now preferred over " ++ show (optionName loser)
-
-      let newViolationCount = Set.size $ userViolations uState
-      MonadIO.liftIO $ Printf.printf "Violations for %s: %d total.\n" (show userId) newViolationCount
 
 restoreUserState :: UserId -> Relation -> Map.Map OptionId Double -> App ()
 restoreUserState userId restoredPrefs restoredRatings = do
