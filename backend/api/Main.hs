@@ -8,7 +8,6 @@ module Main where
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Aeson as Aeson
-import qualified Data.IORef as IORef
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -24,13 +23,12 @@ import Servant
 
 import Types
 import AppState
-import Marshal
 import Rating
 import Scheduler
 
-import Auth
 import Actions
 import Redis
+import Auth
 
 -- application
 
@@ -39,21 +37,21 @@ main = launch 8080
 
 launch :: Int -> IO ()
 launch port = do
-  let initialOptions = colourfulOptions
+  let options = colourfulOptions
       user = "coriocactus"
 
-  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
+  pool <- mkRedisPool
+  let redisHandle = mkRedisHandle pool options
+
   let initialConfig = AppConfig
-        { configSystemTau = 0.5
-        , configStateRef = initialStateRef
-        , configOptions = initialOptions
+        { configOptions = options
+        , configSystemTau = 0.5
+        , configStateHandle = redisHandle
         }
 
   _ <- MonadReader.runReaderT (setupUser user) initialConfig
 
-  pool <- mkRedisPool
-
-  putStrLn $ "=== === === Running melosz backend === === ==="
+  putStrLn $ "=== === === Running melosz backend (API - Redis) === === ==="
   putStrLn $ "Listening: http://localhost:" ++ show port
 
   Warp.run port (application initialConfig pool)
@@ -125,7 +123,7 @@ type API = AuthAPI
 
 servants :: AppConfig -> RedisPool -> Server API
 servants cfg pool = authServant pool
-  :<|> compareServant cfg pool
+  :<|> compareServant cfg
 
 -- comparison
 
@@ -165,8 +163,8 @@ initUser maybeAuth = case maybeAuth of
     Nothing -> UserId "temp-invalid-auth"
   Nothing -> UserId "temp-guest"
 
-compareServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server CompareAPI
-compareServant cfg _pool maybeAuth =
+compareServant :: AppConfig -> Maybe AuthHeader -> Server CompareAPI
+compareServant cfg maybeAuth =
   let userId = initUser maybeAuth
   in emptyServer
   :<|> handleGetCompareData userId
@@ -182,6 +180,7 @@ compareServant cfg _pool maybeAuth =
     fetchAndBuildSession uid = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
       optionsList <- Set.toList <$> MonadReader.asks configOptions
+      setupUser uid
       currentRatings <- getUserRatings uid optionsList
       mPair <- getNextComparisonPair uid
 
@@ -193,15 +192,7 @@ compareServant cfg _pool maybeAuth =
 
     handleGetCompareData :: UserId -> Handler UserSession
     handleGetCompareData userId =
-      execApp cfg $ do
-        mUserState <- getUserState userId
-        case mUserState of
-          Nothing -> do
-            MonadIO.liftIO (putStrLn ("User not found, creating: " ++ show userId))
-            setupUser userId
-            fetchAndBuildSession userId
-          Just _ -> do
-            fetchAndBuildSession userId
+      execApp cfg $ fetchAndBuildSession userId
 
     handlePostCompare :: UserId -> ComparisonSubmission -> Handler UserSession
     handlePostCompare userId submission = do
@@ -217,7 +208,6 @@ compareServant cfg _pool maybeAuth =
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show userId ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
             updateRatings userId winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
-
             fetchAndBuildSession userId
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
