@@ -132,17 +132,16 @@ calculateNewRatings p1 p2 result1 tau =
       rd1_prime = updateRD rd1_star d_squared_inv1
       rd2_prime = updateRD rd2_star d_squared_inv2
 
+      clampRating :: Double -> Double
+      clampRating r = max 100 r
+
+      clampRD :: Double -> Double
+      clampRD rd = max 30 (min 350 rd)
 
       updated_p1 = Glicko (clampRating r1_prime) (clampRD rd1_prime) sigma1_prime
       updated_p2 = Glicko (clampRating r2_prime) (clampRD rd2_prime) sigma2_prime
 
   in (updated_p1, updated_p2)
-
-clampRating :: Double -> Double
-clampRating r = max 100 r
-
-clampRD :: Double -> Double
-clampRD rd = max 30 (min 350 rd)
 
 --- normalization
 glickoToDisplay :: Glicko -> Glicko

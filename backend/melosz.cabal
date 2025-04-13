@@ -55,7 +55,7 @@ library
   hs-source-dirs: src
   exposed-modules:
     Types AppState Glicko2
-    Rating Scheduler Marshal Ranking
+    Rating Scheduler Ranking
 
 executable api
   import: common-options, common-warnings, api-deps
@@ -91,4 +91,4 @@ test-suite core
   other-modules:
     TestArbs, TestUtils,
     TypesSpec, AppStateSpec,
-    RatingSpec, SchedulerSpec, MarshalSpec, RankingSpec
+    RatingSpec, SchedulerSpec, RankingSpec

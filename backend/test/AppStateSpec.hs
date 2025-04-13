@@ -54,6 +54,33 @@ spec = describe "AppState" $ do
       users <- evalAppTest getUsers (Just defaultTestConfig) state
       users `shouldBe` Set.fromList [testUser1, testUser2]
 
+  describe "setupUser" $ do
+    it "adds a new user to stateUserStates" $ do
+      finalState <- execAppTest (setupUser testUser1) (Just defaultTestConfig) initialState
+      Map.member testUser1 (stateUserStates finalState) `shouldBe` True
+
+    it "initializes UserState correctly based on options in config" $ do
+      let startOpts = Set.fromList [optA, optB]
+          testConfigWithOpts = defaultTestConfig { configOptions = startOpts }
+          expectedGlickoMap = Map.fromSet (const initialGlicko) (Set.map optionId startOpts)
+
+      finalState <- execAppTest (setupUser testUser1) (Just testConfigWithOpts) initialState
+      let userState = stateUserStates finalState Map.! testUser1
+
+      userGlickos userState `shouldBe` expectedGlickoMap
+
+    it "is idempotent" $ do
+      intermediateState <- execAppTest (setupUser testUser1) (Just defaultTestConfig) initialState
+      finalState <- execAppTest (setupUser testUser1) (Just defaultTestConfig) intermediateState
+
+      stateUserStates finalState `shouldBe` stateUserStates intermediateState
+      Map.size (stateUserStates finalState) `shouldBe` 1
+
+  describe "setupUsers" $ do
+    it "adds multiple users" $ do
+      finalState <- execAppTest (setupUsers [testUser1, testUser2]) (Just defaultTestConfig) initialState
+      Map.size (stateUserStates finalState) `shouldBe` 2
+
   describe "getGlicko'" $ do
     it "returns initial glicko for unknown user/option" $ do
       glicko <- evalAppTest (getGlicko' testUser1 (optionId optA)) (Just defaultTestConfig) initialState

@@ -7,7 +7,6 @@ module Main where
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.IORef as IORef
 import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -23,12 +22,11 @@ import qualified Web.FormUrlEncoded as Form
 
 import qualified Servant as Servant
 import qualified Servant.HTML.Blaze as ServantBlaze
-import Servant (Get, PostNoContent, ReqBody, FormUrlEncoded)
+import Servant (Get, PostNoContent, ReqBody, FormUrlEncoded, Capture)
 import Servant ((:>), (:<|>)(..))
 
 import Types
 import AppState
-import Marshal
 import Rating
 import Scheduler
 
@@ -41,36 +39,36 @@ runWeb :: Int -> IO ()
 runWeb port = do
   let appToRun :: App AppConfig
       appToRun = setupColourfulUser >> MonadReader.ask
-  putStrLn $ "Starting server on port " ++ show port
+  putStrLn $ "=== === === Running melosz backend === === ==="
+  putStrLn $ "Listening: http://localhost:" ++ show port
   runner port appToRun
 
 runner :: Int -> App AppConfig -> IO ()
 runner port app = do
   let initialOptions = colourfulOptions
 
-  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
+  (_stateRef, ioRefHandle) <- mkIORefHandle
   let initialConfig = AppConfig
         { configSystemTau = 0.5
-        , configStateRef = initialStateRef
+        , configStateHandle = ioRefHandle
         , configOptions = initialOptions
         }
 
   finalConfig <- MonadReader.runReaderT app initialConfig
   Warp.run port (application finalConfig)
 
-
 colourfulOptions :: Set.Set Option
 colourfulOptions = Set.fromList
-        [ createOption "red" "Red" ""
-        , createOption "orange" "Orange" ""
-        , createOption "yellow" "Yellow" ""
-        , createOption "green" "Green" ""
-        , createOption "blue" "Blue" ""
-        , createOption "violet" "Violet" ""
-        , createOption "indigo" "Indigo" ""
-        , createOption "cyan" "Cyan" ""
-        , createOption "magenta" "Magenta" ""
-        ]
+  [ createOption "red" "Red" ""
+  , createOption "orange" "Orange" ""
+  , createOption "yellow" "Yellow" ""
+  , createOption "green" "Green" ""
+  , createOption "blue" "Blue" ""
+  , createOption "violet" "Violet" ""
+  , createOption "indigo" "Indigo" ""
+  , createOption "cyan" "Cyan" ""
+  , createOption "magenta" "Magenta" ""
+  ]
 
 setupColourfulUser :: App ()
 setupColourfulUser = do
@@ -107,7 +105,7 @@ notFoundMiddleware app req respond = app req $ \response ->
     _ -> respond response
 
 runApp :: AppConfig -> App a -> Servant.Handler a
-runApp cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg
+runApp cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg -- Runner stays the same
 
 -- servant
 
@@ -124,6 +122,7 @@ homeServant _cfg = Servant.emptyServer
     handleHome :: Servant.Handler H.Html
     handleHome = do
       MonadIO.liftIO $ putStrLn "Serving /"
+      -- Redirect to a default user's comparison page
       let userUrl = Servant.safeLink butler compareGetButler (Text.pack "coriocactus")
       throwRedirect userUrl
 
@@ -131,7 +130,9 @@ throwRedirect :: Servant.Link -> Servant.Handler a
 throwRedirect link =
   Servant.throwError Servant.err302 { Servant.errHeaders = [("Location", location)] }
   where
-    location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ (Servant.uriPath $ Servant.linkURI link)
+    uriPath' = Servant.uriPath $ Servant.linkURI link
+    location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ uriPath'
+
 
 data HtmlComparisonStatus = HtmlComparisonStatus
   { htmlStatusConsistency :: Double
@@ -148,8 +149,8 @@ instance Form.FromForm ChooseFormData where
     <$> Form.parseUnique "winnerId" form
     <*> Form.parseUnique "loserId" form
 
-type CompareGetAPI = "compare" :> Servant.Capture "userid" Text.Text :> Get '[ServantBlaze.HTML] H.Html
-type ComparePostAPI = "compare" :> Servant.Capture "userid" Text.Text :> ReqBody '[FormUrlEncoded] ChooseFormData :> PostNoContent
+type CompareGetAPI = "compare" :> Capture "userid" Text.Text :> Get '[ServantBlaze.HTML] H.Html
+type ComparePostAPI = "compare" :> Capture "userid" Text.Text :> ReqBody '[FormUrlEncoded] ChooseFormData :> PostNoContent
 
 type CompareAPI = Servant.EmptyAPI
   :<|> CompareGetAPI
@@ -167,6 +168,7 @@ compareServant cfg = Servant.emptyServer
     fetchAndRenderComparePage userId = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show userId
       optionsList <- Set.toList <$> MonadReader.asks configOptions
+      setupUser userId
       currentRatings <- getUserRatings userId optionsList
       mPair <- getNextComparisonPair userId
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show userId ++ ": " ++ show mPair
@@ -176,15 +178,7 @@ compareServant cfg = Servant.emptyServer
     handleGetCompare userIdText = do
       MonadIO.liftIO $ putStrLn $ "Serving /compare/" ++ Text.unpack userIdText
       let userId = UserId (TextEnc.encodeUtf8 userIdText)
-      runApp cfg $ do
-        mUserState <- getUserState userId
-        case mUserState of
-          Nothing -> do
-            MonadIO.liftIO $ putStrLn ("User not found, creating: " ++ show userId)
-            setupUser userId
-            fetchAndRenderComparePage userId
-          Just _ -> do
-            fetchAndRenderComparePage userId
+      runApp cfg $ fetchAndRenderComparePage userId
 
     handlePostCompare :: Text.Text -> ChooseFormData -> Servant.Handler Servant.NoContent
     handlePostCompare userIdText formData = do
@@ -207,7 +201,6 @@ compareServant cfg = Servant.emptyServer
 
       let redirectLink = Servant.safeLink butler compareGetButler userIdText
           redirectUrlPath = Text.pack $ "/" ++ Servant.uriPath (Servant.linkURI redirectLink)
-
       MonadIO.liftIO $ putStrLn $ "Redirecting to: " ++ Text.unpack redirectUrlPath
       Servant.throwError Servant.err303 { Servant.errHeaders = [("Location", TextEnc.encodeUtf8 redirectUrlPath)] }
 

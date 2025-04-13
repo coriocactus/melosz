@@ -2,20 +2,18 @@
 
 module Main where
 
-import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.IORef as IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified System.Random as Random
 import qualified Text.Printf as Printf
+import qualified Data.Foldable as Foldable
 
 import Types
 import AppState
 import Rating
-import Marshal
 import Scheduler
 
 -- application
@@ -34,29 +32,27 @@ runConsole = do
 runner :: App a -> IO a
 runner app = do
   let initialOptions = colourfulOptions
-      user = "coriocactus"
 
-  initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
+  (_stateRef, ioRefHandle) <- mkIORefHandle
   let initialConfig = AppConfig
         { configSystemTau = 0.5
-        , configStateRef = initialStateRef
+        , configStateHandle = ioRefHandle
         , configOptions = initialOptions
         }
-  _ <- MonadReader.runReaderT (setupUser user) initialConfig
   MonadReader.runReaderT app initialConfig
 
 colourfulOptions :: Set.Set Option
 colourfulOptions = Set.fromList
-    [ createOption "red" "Red" ""
-    , createOption "orange" "Orange" ""
-    , createOption "yellow" "Yellow" ""
-    , createOption "green" "Green" ""
-    , createOption "blue" "Blue" ""
-    , createOption "violet" "Violet" ""
-    , createOption "indigo" "Indigo" ""
-    , createOption "cyan" "Cyan" ""
-    , createOption "magenta" "Magenta" ""
-    ]
+  [ createOption "red" "Red" ""
+  , createOption "orange" "Orange" ""
+  , createOption "yellow" "Yellow" ""
+  , createOption "green" "Green" ""
+  , createOption "blue" "Blue" ""
+  , createOption "violet" "Violet" ""
+  , createOption "indigo" "Indigo" ""
+  , createOption "cyan" "Cyan" ""
+  , createOption "magenta" "Magenta" ""
+  ]
 
 setupColourfulUser :: App UserId
 setupColourfulUser = do
@@ -79,6 +75,7 @@ runEvaluationSession uid = continueSession (1 :: Int)
   where
     continueSession comparisonNum = do
       optionsList <- Set.toList <$> MonadReader.asks configOptions
+      setupUser uid
       currentRatings <- getUserRatings uid optionsList
       maybePair <- getNextComparisonPair uid
 
@@ -104,10 +101,11 @@ reportFinalStatus :: UserId -> App ()
 reportFinalStatus user = do
   optionsList <- Set.toList <$> MonadReader.asks configOptions
   MonadIO.liftIO $ putStrLn "\n--- Final Results ---"
+  setupUser user
   finalRankingsWithScores <- getUserRatings user optionsList
 
   MonadIO.liftIO $ putStrLn $ "Final Glicko ratings for user " ++ show user ++ ":"
-  Monad.forM_ (zip [1 :: Int ..] finalRankingsWithScores) $ \(rank, (option, rating)) ->
+  Foldable.forM_ (zip [1 :: Int ..] finalRankingsWithScores) $ \(rank, (option, rating)) ->
     MonadIO.liftIO $ Printf.printf "  %d. %s: %.1f\n" rank (BSC.unpack $ optionName option) rating
 
   MonadIO.liftIO $ putStrLn "\nEvaluation finished."
@@ -127,25 +125,27 @@ presentComparison uid option1 option2 = do
     Printf.printf "2. %s\n" (BSC.unpack $ optionName dispOpt2)
     putStr "Your choice (1 or 2): "
 
-  getValidChoice swapOrder dispOpt1 dispOpt2
+  getValidChoice swapOrder option1 option2
   where
     getValidChoice :: Bool -> Option -> Option -> App MatchResult
-    getValidChoice swapped dispOpt1 dispOpt2 = do
+    getValidChoice swapped origOpt1 origOpt2 = do
       choice <- MonadIO.liftIO getLine
       case choice of
         "1" -> pure $ if swapped then Loss else Win
         "2" -> pure $ if swapped then Win else Loss
         _   -> do
           MonadIO.liftIO $ do
+            let (dispOpt1, dispOpt2) = if swapped then (origOpt2, origOpt1) else (origOpt1, origOpt2)
             putStrLn "Invalid choice. Please enter 1 or 2."
             Printf.printf "1. %s\n" (BSC.unpack $ optionName dispOpt1)
             Printf.printf "2. %s\n" (BSC.unpack $ optionName dispOpt2)
             putStr "Your choice (1 or 2): "
-          getValidChoice swapped dispOpt1 dispOpt2
+          getValidChoice swapped origOpt1 origOpt2
 
 displayRankings :: UserId -> [(Option, Int)] -> Map.Map OptionId Double -> App ()
 displayRankings uid prevRankings _prevRatingsMap = do
   optionsList <- Set.toList <$> MonadReader.asks configOptions
+  setupUser uid
   currentRatingsList <- getUserRatings uid optionsList
   let currentRatingsMap = ratingsToMap currentRatingsList
       prevRankMap = Map.fromList $ map (\(opt, rank) -> (optionId opt, rank)) prevRankings

@@ -1,42 +1,33 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module AppState where
 
+import qualified Control.Monad as Monad
 import qualified Control.Monad.Reader as MonadReader
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Control.Monad as Monad
-import qualified Data.Maybe as Maybe
 import qualified Data.IORef as IORef
+import qualified Data.Maybe as Maybe
 
 import Types
 
--- application monad
-
-type App = MonadReader.ReaderT AppConfig IO
-
--- configuration
+type App a = MonadReader.ReaderT AppConfig IO a
 
 data AppConfig = AppConfig
-  { configSystemTau :: Double
-  , configStateRef :: IORef.IORef AppState
-  , configOptions :: Set.Set Option
+  { configOptions :: Set.Set Option
+  , configSystemTau :: Double
+  , configStateHandle :: StateHandle IO
   }
-
-getConfig :: App AppConfig
-getConfig = MonadReader.ask
-
--- global application state
 
 data AppState = AppState
   { stateUserStates :: Map.Map UserId UserState
   } deriving (Show, Eq)
 
-initialState :: AppState
-initialState = AppState
+initialAppState :: AppState
+initialAppState = AppState
   { stateUserStates = Map.empty
   }
-
--- user state
 
 data UserState = UserState
   { userGlickos :: Map.Map OptionId Glicko
@@ -47,49 +38,83 @@ initialUserState options = UserState
   { userGlickos = Map.fromSet (const initialGlicko) (Set.map optionId options)
   }
 
--- state accessors
+class Monad m => MonadAppState m where
+  getStorableGlicko :: UserId -> OptionId -> m Glicko
+  updateStorableRatings :: UserId -> OptionId -> Glicko -> OptionId -> Glicko -> m ()
+  getAllStorableRatings :: UserId -> m (Map.Map OptionId Glicko)
+  ensureStorableUser :: UserId -> Set.Set Option -> m ()
 
-readCurrentState :: App AppState
-readCurrentState = do
-  ref <- MonadReader.asks configStateRef
-  MonadIO.liftIO $ IORef.readIORef ref
+instance MonadAppState (MonadReader.ReaderT AppConfig IO) where
+  getStorableGlicko uid oid = do
+    handle <- MonadReader.asks configStateHandle
+    MonadIO.liftIO $ hGetGlicko handle uid oid
+  updateStorableRatings uid oid1 g1 oid2 g2 = do
+    handle <- MonadReader.asks configStateHandle
+    MonadIO.liftIO $ hUpdateRatings handle uid oid1 g1 oid2 g2
+  getAllStorableRatings uid = do
+    handle <- MonadReader.asks configStateHandle
+    MonadIO.liftIO $ hGetAllRatings handle uid
+  ensureStorableUser uid opts = do
+    handle <- MonadReader.asks configStateHandle
+    MonadIO.liftIO $ hEnsureUser handle uid opts
 
-getUsers :: App (Set.Set UserId)
-getUsers = Map.keysSet . stateUserStates <$> readCurrentState
+data StateHandle m = StateHandle
+  { hGetGlicko      :: UserId -> OptionId -> m Glicko
+  , hUpdateRatings  :: UserId -> OptionId -> Glicko -> OptionId -> Glicko -> m ()
+  , hGetAllRatings  :: UserId -> m (Map.Map OptionId Glicko)
+  , hEnsureUser     :: UserId -> Set.Set Option -> m ()
+  }
 
-getUserState :: UserId -> App (Maybe UserState)
-getUserState userId = Map.lookup userId . stateUserStates <$> readCurrentState
-
-getUserState' :: UserId -> App UserState
-getUserState' userId = do
-  mUserState <- getUserState userId
-  case mUserState of
-      Just us -> pure us
-      Nothing -> do
-          opts <- MonadReader.asks configOptions
-          pure $ initialUserState opts
-
-getGlicko :: UserId -> OptionId -> App (Maybe Glicko)
-getGlicko userId oid = do
-  mUserState <- getUserState userId
-  pure $ mUserState >>= Map.lookup oid . userGlickos
-
-getGlicko' :: UserId -> OptionId -> App Glicko
-getGlicko' userId oid = Maybe.fromMaybe initialGlicko <$> getGlicko userId oid
-
--- utility
+getConfig :: App AppConfig
+getConfig = MonadReader.ask
 
 getAllOptionPairsSet :: Set.Set Option -> Set.Set (Option, Option)
 getAllOptionPairsSet options = Set.fromList $ do
   o1 <- Set.toList options
   o2 <- Set.toList options
   Monad.guard (optionId o1 < optionId o2)
-  pure (o1, o2)
+  pure (makeCanonicalPair o1 o2)
 
-modifyStateRef :: (AppState -> (AppState, a)) -> App a
-modifyStateRef f = do
-  stateRef <- MonadReader.asks configStateRef
-  MonadIO.liftIO $ IORef.atomicModifyIORef' stateRef f
+setupUser :: (MonadAppState m, MonadReader.MonadReader AppConfig m) => UserId -> m ()
+setupUser userId = do
+  optionsSet <- MonadReader.asks configOptions
+  ensureStorableUser userId optionsSet
 
-modifyStateRef_ :: (AppState -> AppState) -> App ()
-modifyStateRef_ f = modifyStateRef (\s -> (f s, ()))
+setupUsers :: (MonadAppState m, MonadReader.MonadReader AppConfig m) => [UserId] -> m ()
+setupUsers users = Monad.forM_ users setupUser
+
+-- (base) ioref state implementation
+
+mkIORefHandle :: IO (IORef.IORef AppState, StateHandle IO)
+mkIORefHandle = do
+  ref <- IORef.newIORef initialAppState
+  let
+    handle = StateHandle
+      { hGetGlicko = \uid oid -> do
+          s <- IORef.readIORef ref
+          pure $ Maybe.fromMaybe initialGlicko $
+            Map.lookup uid (stateUserStates s) >>= Map.lookup oid . userGlickos
+
+      , hUpdateRatings = \uid oid1 g1 oid2 g2 -> do
+          IORef.atomicModifyIORef' ref $ \s ->
+            let updateGlickos uMap = Map.insert oid1 g1 $ Map.insert oid2 g2 uMap
+                modifyUserState uState = uState { userGlickos = updateGlickos (userGlickos uState) }
+                modifyAppMap appMap = Map.adjust modifyUserState uid appMap
+                newState = if Map.member uid (stateUserStates s)
+                           then s { stateUserStates = modifyAppMap (stateUserStates s) }
+                           else s
+            in (newState, ())
+
+      , hGetAllRatings = \uid -> do
+          s <- IORef.readIORef ref
+          pure $ maybe Map.empty userGlickos (Map.lookup uid (stateUserStates s))
+
+      , hEnsureUser = \uid opts -> do
+           IORef.atomicModifyIORef' ref $ \s ->
+             if Map.member uid (stateUserStates s)
+             then (s, ())
+             else let newUserState = initialUserState opts
+                      newMap = Map.insert uid newUserState (stateUserStates s)
+                  in (s { stateUserStates = newMap }, ())
+      }
+  pure (ref, handle)
