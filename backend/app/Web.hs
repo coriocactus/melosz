@@ -7,7 +7,7 @@ module Main where
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.ByteString.Char8 as BSC
-import qualified Data.List as List
+import qualified Data.IORef as IORef
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
@@ -45,17 +45,19 @@ runWeb port = do
 
 runner :: Int -> App AppConfig -> IO ()
 runner port app = do
-  let initialOptions = colourfulOptions
+  let options = colourfulOptions
 
-  (_stateRef, ioRefHandle) <- mkIORefHandle
-  let initialConfig = AppConfig
-        { configSystemTau = 0.5
-        , configStateHandle = ioRefHandle
-        , configOptions = initialOptions
+  ref <- IORef.newIORef initialAppState
+  let handle = mkIORefHandle ref
+
+  let config = AppConfig
+        { configOptions = options
+        , configSystemTau = 0.5
+        , configStateHandle = handle
         }
 
-  finalConfig <- MonadReader.runReaderT app initialConfig
-  Warp.run port (application finalConfig)
+  initConfig <- MonadReader.runReaderT app config
+  Warp.run port (application initConfig)
 
 colourfulOptions :: Set.Set Option
 colourfulOptions = Set.fromList
@@ -105,7 +107,7 @@ notFoundMiddleware app req respond = app req $ \response ->
     _ -> respond response
 
 runApp :: AppConfig -> App a -> Servant.Handler a
-runApp cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg -- Runner stays the same
+runApp cfg action = MonadIO.liftIO $ MonadReader.runReaderT action cfg
 
 -- servant
 
@@ -254,11 +256,6 @@ mkRankingsTable sortedRatings = H.table $ do
       H.td $ H.toHtml rank
       H.td $ H.toHtml (BSC.unpack $ optionName opt)
       H.td $ H.toHtml (Printf.printf "%.1f" rating :: String)
-
-getOptionById :: OptionId -> App (Maybe Option)
-getOptionById oidToFind = do
-  optionsSet <- MonadReader.asks configOptions
-  pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)
 
 -- blaze templates
 

@@ -4,6 +4,7 @@ module Main where
 
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
+import qualified Data.IORef as IORef
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -31,15 +32,18 @@ runConsole = do
 
 runner :: App a -> IO a
 runner app = do
-  let initialOptions = colourfulOptions
+  let options = colourfulOptions
 
-  (_stateRef, ioRefHandle) <- mkIORefHandle
-  let initialConfig = AppConfig
-        { configSystemTau = 0.5
-        , configStateHandle = ioRefHandle
-        , configOptions = initialOptions
+  ref <- IORef.newIORef initialAppState
+  let handle = mkIORefHandle ref
+
+  let config = AppConfig
+        { configOptions = options
+        , configSystemTau = 0.5
+        , configStateHandle = handle
         }
-  MonadReader.runReaderT app initialConfig
+
+  MonadReader.runReaderT app config
 
 colourfulOptions :: Set.Set Option
 colourfulOptions = Set.fromList

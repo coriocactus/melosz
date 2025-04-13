@@ -8,7 +8,6 @@ module Main where
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Aeson as Aeson
-import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
@@ -38,23 +37,20 @@ main = launch 8080
 launch :: Int -> IO ()
 launch port = do
   let options = colourfulOptions
-      user = "coriocactus"
 
   pool <- mkRedisPool
   let redisHandle = mkRedisHandle pool options
 
-  let initialConfig = AppConfig
+  let config = AppConfig
         { configOptions = options
         , configSystemTau = 0.5
         , configStateHandle = redisHandle
         }
 
-  _ <- MonadReader.runReaderT (setupUser user) initialConfig
-
   putStrLn $ "=== === === Running melosz backend (API - Redis) === === ==="
   putStrLn $ "Listening: http://localhost:" ++ show port
 
-  Warp.run port (application initialConfig pool)
+  Warp.run port (application config pool)
 
 colourfulOptions :: Set.Set Option
 colourfulOptions = Set.fromList
@@ -156,20 +152,21 @@ type CompareAPI = EmptyAPI
 extractHash :: Text.Text -> Maybe Text.Text
 extractHash txt = Text.stripPrefix (Text.pack "MELOSZ ") txt
 
-initUser :: Maybe AuthHeader -> UserId
-initUser maybeAuth = case maybeAuth of
-  Just auth -> case extractHash auth of
-    Just hash -> UserId $ TextEnc.encodeUtf8 hash
-    Nothing -> UserId "temp-invalid-auth"
-  Nothing -> UserId "temp-guest"
+initUser :: AppConfig -> Maybe AuthHeader -> UserId
+initUser _cfg maybeAuth = do
+  case maybeAuth of
+    Just auth -> case extractHash auth of
+      Just hash -> UserId $ TextEnc.encodeUtf8 hash
+      Nothing -> UserId "temp-invalid-auth"
+    Nothing -> UserId "temp-guest"
 
 compareServant :: AppConfig -> Maybe AuthHeader -> Server CompareAPI
 compareServant cfg maybeAuth =
-  let userId = initUser maybeAuth
+  let uid = initUser cfg maybeAuth
   in emptyServer
-  :<|> handleGetCompareData userId
-  :<|> handlePostCompare userId
-  :<|> handleTestCompare userId
+  :<|> handleGetCompareData uid
+  :<|> handlePostCompare uid
+  :<|> handleTestCompare uid
   where
     handleTestCompare :: UserId -> Handler NoContent
     handleTestCompare uid = do
@@ -212,8 +209,3 @@ compareServant cfg maybeAuth =
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
             pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })
-
-getOptionById :: OptionId -> App (Maybe Option)
-getOptionById oidToFind = do
-  optionsSet <- MonadReader.asks configOptions
-  pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)

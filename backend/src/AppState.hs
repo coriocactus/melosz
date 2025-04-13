@@ -9,6 +9,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.IORef as IORef
 import qualified Data.Maybe as Maybe
+import qualified Data.List as List
 
 import Types
 
@@ -18,24 +19,6 @@ data AppConfig = AppConfig
   { configOptions :: Set.Set Option
   , configSystemTau :: Double
   , configStateHandle :: StateHandle IO
-  }
-
-data AppState = AppState
-  { stateUserStates :: Map.Map UserId UserState
-  } deriving (Show, Eq)
-
-initialAppState :: AppState
-initialAppState = AppState
-  { stateUserStates = Map.empty
-  }
-
-data UserState = UserState
-  { userGlickos :: Map.Map OptionId Glicko
-  } deriving (Show, Eq)
-
-initialUserState :: Set.Set Option -> UserState
-initialUserState options = UserState
-  { userGlickos = Map.fromSet (const initialGlicko) (Set.map optionId options)
   }
 
 class Monad m => MonadAppState m where
@@ -75,6 +58,11 @@ getAllOptionPairsSet options = Set.fromList $ do
   Monad.guard (optionId o1 < optionId o2)
   pure (makeCanonicalPair o1 o2)
 
+getOptionById :: OptionId -> App (Maybe Option)
+getOptionById oidToFind = do
+  optionsSet <- MonadReader.asks configOptions
+  pure $ List.find (\opt -> optionId opt == oidToFind) (Set.toList optionsSet)
+
 setupUser :: (MonadAppState m, MonadReader.MonadReader AppConfig m) => UserId -> m ()
 setupUser userId = do
   optionsSet <- MonadReader.asks configOptions
@@ -85,36 +73,57 @@ setupUsers users = Monad.forM_ users setupUser
 
 -- (base) ioref state implementation
 
-mkIORefHandle :: IO (IORef.IORef AppState, StateHandle IO)
-mkIORefHandle = do
-  ref <- IORef.newIORef initialAppState
-  let
-    handle = StateHandle
-      { hGetGlicko = \uid oid -> do
-          s <- IORef.readIORef ref
-          pure $ Maybe.fromMaybe initialGlicko $
-            Map.lookup uid (stateUserStates s) >>= Map.lookup oid . userGlickos
+data AppState = AppState
+  { stateUserStates :: Map.Map UserId UserState
+  } deriving (Show, Eq)
 
-      , hUpdateRatings = \uid oid1 g1 oid2 g2 -> do
-          IORef.atomicModifyIORef' ref $ \s ->
-            let updateGlickos uMap = Map.insert oid1 g1 $ Map.insert oid2 g2 uMap
-                modifyUserState uState = uState { userGlickos = updateGlickos (userGlickos uState) }
-                modifyAppMap appMap = Map.adjust modifyUserState uid appMap
-                newState = if Map.member uid (stateUserStates s)
-                           then s { stateUserStates = modifyAppMap (stateUserStates s) }
-                           else s
-            in (newState, ())
+initialAppState :: AppState
+initialAppState = AppState
+  { stateUserStates = Map.empty
+  }
 
-      , hGetAllRatings = \uid -> do
-          s <- IORef.readIORef ref
-          pure $ maybe Map.empty userGlickos (Map.lookup uid (stateUserStates s))
+data UserState = UserState
+  { userGlickos :: Map.Map OptionId Glicko
+  } deriving (Show, Eq)
 
-      , hEnsureUser = \uid opts -> do
-           IORef.atomicModifyIORef' ref $ \s ->
-             if Map.member uid (stateUserStates s)
-             then (s, ())
-             else let newUserState = initialUserState opts
-                      newMap = Map.insert uid newUserState (stateUserStates s)
-                  in (s { stateUserStates = newMap }, ())
-      }
-  pure (ref, handle)
+initialUserState :: Set.Set Option -> UserState
+initialUserState options = UserState
+  { userGlickos = Map.fromSet (const initialGlicko) (Set.map optionId options)
+  }
+
+mkIORefHandle :: IORef.IORef AppState -> StateHandle IO
+mkIORefHandle ref = StateHandle
+  { hGetGlicko = \uid oid -> getGlickoIORef ref uid oid
+  , hUpdateRatings = \uid oid1 g1 oid2 g2 -> updateRatingsIORef ref uid oid1 g1 oid2 g2
+  , hGetAllRatings = \uid -> getAllRatingsIORef ref uid
+  , hEnsureUser = \uid opts -> ensureUserIORef ref uid opts
+  }
+
+getGlickoIORef :: IORef.IORef AppState -> UserId -> OptionId -> IO Glicko
+getGlickoIORef ref uid oid = do
+  s <- IORef.readIORef ref
+  pure $ Maybe.fromMaybe initialGlicko $
+    Map.lookup uid (stateUserStates s) >>= Map.lookup oid . userGlickos
+
+updateRatingsIORef :: IORef.IORef AppState -> UserId -> OptionId -> Glicko -> OptionId -> Glicko -> IO ()
+updateRatingsIORef ref uid oid1 g1 oid2 g2 = do
+  IORef.atomicModifyIORef' ref $ \s ->
+    let updateGlickos uMap = Map.insert oid1 g1 $ Map.insert oid2 g2 uMap
+        modifyUserState uState = uState { userGlickos = updateGlickos (userGlickos uState) }
+        modifyAppMap appMap = Map.adjust modifyUserState uid appMap
+        newState = if Map.member uid (stateUserStates s) then s { stateUserStates = modifyAppMap (stateUserStates s) } else s
+    in (newState, ())
+
+getAllRatingsIORef :: IORef.IORef AppState -> UserId -> IO (Map.Map OptionId Glicko)
+getAllRatingsIORef ref uid = do
+  s <- IORef.readIORef ref
+  pure $ maybe Map.empty userGlickos (Map.lookup uid (stateUserStates s))
+
+ensureUserIORef :: IORef.IORef AppState -> UserId -> Set.Set Option -> IO ()
+ensureUserIORef ref uid opts = do
+  IORef.atomicModifyIORef' ref $ \s ->
+    if Map.member uid (stateUserStates s) then (s, ())
+    else
+      let newUserState = initialUserState opts
+          newMap = Map.insert uid newUserState (stateUserStates s)
+      in (s { stateUserStates = newMap }, ())
