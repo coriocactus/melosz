@@ -152,6 +152,7 @@ type CompareAPI = EmptyAPI
 extractHash :: Text.Text -> Maybe Text.Text
 extractHash txt = Text.stripPrefix (Text.pack "MELOSZ ") txt
 
+-- TODO auth to user_id or temp_id
 initUser :: AppConfig -> Maybe AuthHeader -> UserId
 initUser _cfg maybeAuth = do
   case maybeAuth of
