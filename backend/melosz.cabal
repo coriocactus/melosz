@@ -35,6 +35,8 @@ common api-deps
     servant-server,
     time,
     utf8-string,
+    uuid,
+    uuid-types,
     wai,
     wai-cors,
     wai-extra,

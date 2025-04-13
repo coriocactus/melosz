@@ -7,18 +7,19 @@
 
 module Redis where
 
-import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad as Monad
+import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
--- import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Pool as Pool
 import qualified Data.Set as Set
--- import qualified Data.Text.Encoding as TextEnc
-import qualified Data.Maybe as Maybe
--- import qualified Data.Foldable as Foldable
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEnc
+import qualified Data.Time.Clock.POSIX as POSIXTime
 import qualified Database.Redis as Redis
 
 import Types
@@ -40,9 +41,6 @@ runRedisAction :: RedisPool -> Redis.Redis a -> IO a
 runRedisAction pool action = MonadIO.liftIO $
   Pool.withResource pool $ \conn -> Redis.runRedis conn action
 
-usersIndexKey :: BS.ByteString
-usersIndexKey = "users"
-
 userGlickoKey :: UserId -> BS.ByteString
 userGlickoKey (UserId uid) = "glicko:" <> uid
 
@@ -58,10 +56,6 @@ decodeGlicko = Aeson.decode . BSL.fromStrict
 decodeGlickoDef :: BS.ByteString -> Glicko
 decodeGlickoDef bs = Maybe.fromMaybe initialGlicko (decodeGlicko bs)
 
--- Redis Schema:
---   `users` (Set): Contains all known UserIds (ByteString).
---   `glicko:<UserId>` (Hash): Maps OptionId (ByteString) -> JSON encoded Glicko (ByteString).
-
 mkRedisHandle :: RedisPool -> Set.Set Option -> StateHandle IO
 mkRedisHandle pool options = StateHandle
   { hGetGlicko      = \uid oid -> getGlickoRedis pool uid oid
@@ -69,6 +63,100 @@ mkRedisHandle pool options = StateHandle
   , hGetAllRatings  = \uid -> getAllRatingsRedis pool options uid
   , hEnsureUser     = \uid opts -> ensureUserRedis pool uid opts
   }
+
+----
+
+-- | Redis Schema (note: email = userId)
+-- [hash] "tokens": [<token> -> <email>]
+-- [hash] "hashes": [<hash> -> <email>]
+-- [set]  "users" -> [<email>]
+-- [hash] [user:<email>] -> [hash -> <hash>, created_on -> <created_on>, accessed_on -> <accessed_on>]
+-- [hash] [glicko:<email>] -> [<oid> -> <glicko_json>]
+
+userMetaKey :: BS.ByteString -> BS.ByteString
+userMetaKey email = "user:" <> email
+
+encodeString :: String -> BS.ByteString
+encodeString str = BSU.fromString str
+
+encodeText :: Text.Text -> BS.ByteString
+encodeText text = TextEnc.encodeUtf8 text
+
+encodeTimestamp :: POSIXTime.POSIXTime -> BS.ByteString
+encodeTimestamp now = BSU.fromString $ show (floor now :: Int)
+
+hExpire :: BS.ByteString -> BS.ByteString -> BS.ByteString -> Redis.Redis (Either Redis.Reply Redis.Status)
+hExpire key seconds field = Redis.sendRequest ["HEXPIRE", key, seconds, "FIELDS", "1", field]
+
+setAuthTokenRedis :: BS.ByteString -> BS.ByteString -> Redis.Redis (Redis.TxResult ())
+setAuthTokenRedis token email = Redis.multiExec $ do
+  _ <- Redis.hset "tokens" token email
+  _ <- Redis.liftRedis $ hExpire "tokens" "300" token
+  return $ pure ()
+
+getAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f (Maybe BSU.ByteString))
+getAuthTokenRedis token = Redis.hget "tokens" token
+
+delAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Integer)
+delAuthTokenRedis token = Redis.hdel "tokens" [token]
+
+findUserByEmailRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Bool)
+findUserByEmailRedis email = Redis.sismember "users" email
+
+getUserByHashRedis :: Text.Text -> Redis.Redis (Either Redis.Reply (Maybe (Bool, UserId)))
+getUserByHashRedis hash = do
+  isValidHash <- Redis.hget "hashes" (encodeText hash)
+  case isValidHash of
+    Left err -> pure $ Left err
+    Right Nothing -> pure $ Right Nothing
+    Right (Just email) -> do
+      isRegistered <- findUserByEmailRedis email
+      case isRegistered of
+        Left err -> pure $ Left err
+        Right False -> pure $ Right (Just $ (False, UserId email))
+        Right True -> pure $ Right (Just $ (True, UserId email))
+
+loginRedis :: BSU.ByteString -> BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
+loginRedis now email hash = Redis.multiExec $ do
+  _ <- Redis.hset "hashes" hash email
+  _ <- Redis.hset (userMetaKey email) "hash" hash
+  _ <- Redis.hset (userMetaKey email) "accessed_on" now
+  return $ pure ()
+
+-- hashes: hgetall from hashes and filter out email
+_logoutRedis :: Redis.RedisCtx m f => [BSU.ByteString] -> m (f Integer)
+_logoutRedis hashes = Redis.hdel "hashes" hashes
+
+registerRedis :: BSU.ByteString -> BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
+registerRedis now email hash = Redis.multiExec $ do
+  _ <- Redis.sadd "users" [email]
+  _ <- Redis.hset "hashes" hash email
+  _ <- Redis.hset (userMetaKey email) "hash" hash
+  _ <- Redis.hset (userMetaKey email) "created_on" now
+  _ <- Redis.hset (userMetaKey email) "accessed_on" now
+  return $ pure ()
+
+makeGuestRedis :: BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
+makeGuestRedis email hash = Redis.multiExec $ do
+  _ <- Redis.hset "hashes" hash email
+  _ <- Redis.liftRedis $ hExpire "hashes" "3600" hash
+  return $ pure ()
+
+extendGuestRedis :: UserId -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
+extendGuestRedis uid hash = Redis.multiExec $ do
+  _ <- Redis.liftRedis $ hExpire "hashes" "3600" hash
+  _ <- Redis.expire (userGlickoKey uid) 3600
+  return $ pure ()
+
+-- hashes: hgetall from hashes and filter out email
+_deleteRedis :: BSU.ByteString -> [BSU.ByteString] -> Redis.Redis (Redis.TxResult ())
+_deleteRedis email hashes = Redis.multiExec $ do
+  _ <- Redis.hdel "hashes" hashes
+  _ <- Redis.srem "users" [email]
+  _ <- Redis.del [(userMetaKey email)]
+  return $ pure ()
+
+----
 
 -- | Retrieves the Glicko rating for a specific user and option.
 -- If the user or option doesn't exist in Redis, returns the initial Glicko rating.
@@ -83,19 +171,15 @@ getGlickoRedis pool uid oid = do
     Right (Just glickoBS) -> pure $ decodeGlickoDef glickoBS
 
 -- | Atomically updates the Glicko ratings for two options for a given user.
--- This function assumes the user might already exist. If the user is guaranteed
--- to exist via ensureUserRedis, the SADD could be omitted, but it's safer here.
 updateRatingsRedis :: RedisPool -> UserId -> OptionId -> Glicko -> OptionId -> Glicko -> IO ()
 updateRatingsRedis pool uid oid1 g1 oid2 g2 = do
   let uKey = userGlickoKey uid
-      (UserId userIdBS) = uid
       oField1 = optionField oid1
       oField2 = optionField oid2
       g1Json = encodeGlicko g1
       g2Json = encodeGlicko g2
 
   _ <- runRedisAction pool $ Redis.multiExec $ do
-    _ <- Redis.sadd usersIndexKey [userIdBS]
     _ <- Redis.hset uKey oField1 g1Json
     _ <- Redis.hset uKey oField2 g2Json
     return $ pure ()
@@ -129,17 +213,15 @@ getAllRatingsRedis pool options uid = do
     lookupOrDefault :: Map.Map OptionId Glicko -> OptionId -> Glicko
     lookupOrDefault redisMap oid = Map.findWithDefault initialGlicko oid redisMap
 
--- | Ensures that a user exists in Redis and has at least initial Glicko ratings
--- for all specified options. Uses HSETNX to avoid overwriting existing ratings.
+-- | Ensures that a user has at least initial Glicko ratings for all specified
+-- options. Uses HSETNX to avoid overwriting existing ratings.
 ensureUserRedis :: RedisPool -> UserId -> Set.Set Option -> IO ()
 ensureUserRedis pool uid opts = do
   let uKey = userGlickoKey uid
-      (UserId userIdBS) = uid
       initialGlickoJson = encodeGlicko initialGlicko
       optionFields = Set.toList $ Set.map optionField (Set.map optionId opts)
 
   _ <- runRedisAction pool $ Redis.multiExec $ do
-    _ <- Redis.sadd usersIndexKey [userIdBS]
     Monad.mapM_ (\oField -> Redis.hsetnx uKey oField initialGlickoJson) optionFields
     return $ pure ()
   return ()

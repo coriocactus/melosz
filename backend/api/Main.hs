@@ -111,15 +111,12 @@ underButler = jsonErrorFormatters :. EmptyContext
 butler :: Proxy API
 butler = Proxy
 
-type AuthHeader = Text.Text
-type Protect = Header "authorization" AuthHeader
-
 type API = AuthAPI
   :<|> Protect :> CompareAPI
 
 servants :: AppConfig -> RedisPool -> Server API
 servants cfg pool = authServant pool
-  :<|> compareServant cfg
+  :<|> compareServant cfg pool
 
 -- comparison
 
@@ -149,31 +146,12 @@ type CompareAPI = EmptyAPI
   :<|> ComparePostAPI
   :<|> CompareTestAPI
 
-extractHash :: Text.Text -> Maybe Text.Text
-extractHash txt = Text.stripPrefix (Text.pack "MELOSZ ") txt
-
--- TODO auth to user_id or temp_id
-initUser :: AppConfig -> Maybe AuthHeader -> UserId
-initUser _cfg maybeAuth = do
-  case maybeAuth of
-    Just auth -> case extractHash auth of
-      Just hash -> UserId $ TextEnc.encodeUtf8 hash
-      Nothing -> UserId "temp-invalid-auth"
-    Nothing -> UserId "temp-guest"
-
-compareServant :: AppConfig -> Maybe AuthHeader -> Server CompareAPI
-compareServant cfg maybeAuth =
-  let uid = initUser cfg maybeAuth
-  in emptyServer
-  :<|> handleGetCompareData uid
-  :<|> handlePostCompare uid
-  :<|> handleTestCompare uid
+compareServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server CompareAPI
+compareServant cfg pool auth = emptyServer
+  :<|> handleGetCompareData
+  :<|> handlePostCompare
+  :<|> handleTestCompare
   where
-    handleTestCompare :: UserId -> Handler NoContent
-    handleTestCompare uid = do
-      MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by USER: " ++ show uid
-      pure NoContent
-
     fetchAndBuildSession :: UserId -> App (Either ServerError UserSession)
     fetchAndBuildSession uid = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
@@ -188,12 +166,20 @@ compareServant cfg maybeAuth =
         , usRankings = currentRatings
         }
 
-    handleGetCompareData :: UserId -> Handler UserSession
-    handleGetCompareData userId =
-      execApp cfg $ fetchAndBuildSession userId
+    handleTestCompare :: Handler NoContent
+    handleTestCompare = do
+      uid <- initUser pool auth
+      MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by USER: " ++ show uid
+      pure NoContent
 
-    handlePostCompare :: UserId -> ComparisonSubmission -> Handler UserSession
-    handlePostCompare userId submission = do
+    handleGetCompareData :: Handler UserSession
+    handleGetCompareData = do
+      uid <- initUser pool auth
+      execApp cfg $ fetchAndBuildSession uid
+
+    handlePostCompare :: ComparisonSubmission -> Handler UserSession
+    handlePostCompare submission = do
+      uid <- initUser pool auth
       let winnerId = csWinnerId submission
           loserId  = csLoserId submission
 
@@ -203,10 +189,10 @@ compareServant cfg maybeAuth =
 
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
-            MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show userId ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
-            updateRatings userId winnerOpt loserOpt Win
-            MonadIO.liftIO $ putStrLn $ "State updated for " ++ show userId
-            fetchAndBuildSession userId
+            MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show uid ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
+            updateRatings uid winnerOpt loserOpt Win
+            MonadIO.liftIO $ putStrLn $ "State updated for " ++ show uid
+            fetchAndBuildSession uid
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
             pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })

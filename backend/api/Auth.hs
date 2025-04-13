@@ -13,11 +13,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as Base64BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
 import qualified Data.Time.Clock.POSIX as POSIXTime
+import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 import qualified Data.Word as Word
 import qualified Database.Redis as Redis
 import qualified GHC.Generics as Generics
@@ -25,8 +26,44 @@ import qualified System.Random as Random
 
 import Servant
 
+import Types
+
 import Actions
 import Redis
+
+type AuthHeader = Text.Text
+type Protect = Header "authorization" AuthHeader
+
+initUser :: RedisPool -> Maybe AuthHeader -> Handler UserId
+initUser pool maybeAuth =
+  case maybeAuth of
+    Nothing -> handleMissingAuth
+    Just auth -> case extractHash auth of
+      Nothing -> handleMissingAuth
+      Just hash -> do
+        maybeUserId <- getUserByHash pool hash
+        case maybeUserId of
+          Nothing -> handleMissingAuth
+          Just (isRegistered, userId) -> do
+            case isRegistered of
+              True -> pure userId
+              False -> extendGuest pool userId hash >> pure userId
+
+handleMissingAuth :: Handler a
+handleMissingAuth = exec $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Not Authorized: Require MELOSZ token" :: Text.Text)]) })
+
+extractHash :: Text.Text -> Maybe Text.Text
+extractHash txt = Text.stripPrefix (Text.pack "MELOSZ ") txt
+
+getUserByHash :: RedisPool -> Hash -> Handler (Maybe (Bool, UserId))
+getUserByHash pool hash = do
+  result <- execRedis pool $ getUserByHashRedis hash
+  case result of
+    Left err -> handleRedisError err
+    Right maybeUserId -> pure maybeUserId
+
+extendGuest :: RedisPool -> UserId -> Text.Text -> Handler (Redis.TxResult ())
+extendGuest pool uid hash = execRedis pool $ extendGuestRedis uid (encodeText hash)
 
 type Token = Text.Text
 type Hash = Text.Text
@@ -58,6 +95,7 @@ data AuthPayload = AuthPayload
   , authEmail :: Text.Text
   } deriving (Generics.Generic, Show)
 
+type GuestGetAPI = "guest" :> Get '[JSON] AuthHash
 type LoginGetAPI = "login" :> Get '[JSON] AuthToken
 type RegisterGetAPI = "register" :> Get '[JSON] AuthToken
 type LoginPostAPI = "login" :> ReqBody '[JSON] AuthPayload :> PostNoContent
@@ -65,6 +103,7 @@ type RegisterPostAPI = "register" :> ReqBody '[JSON] AuthPayload :> PostNoConten
 type AuthGetAPI = "auth" :> Capture "token" Token :> Get '[JSON] AuthHash
 
 type AuthAPI = EmptyAPI
+  :<|> GuestGetAPI
   :<|> LoginGetAPI
   :<|> RegisterGetAPI
   :<|> LoginPostAPI
@@ -73,12 +112,23 @@ type AuthAPI = EmptyAPI
 
 authServant :: RedisPool -> Server AuthAPI
 authServant pool = emptyServer
+  :<|> handleGuest
   :<|> handleGetLogin
   :<|> handleGetRegister
   :<|> handlePostLogin
   :<|> handlePostRegister
   :<|> handleGetAuth
   where
+    handleGuest :: Handler AuthHash
+    handleGuest = do
+      now <- MonadIO.liftIO POSIXTime.getPOSIXTime
+      nonce <- MonadIO.liftIO generateNonce
+      uuid <- MonadIO.liftIO $ UUID.toString <$> UUID.nextRandom
+      let email = encodeString uuid
+          hash = generateAuthHash now nonce $ TextEnc.decodeUtf8 email
+      _ <- execRedis pool $ makeGuestRedis email (encodeText hash)
+      exec $ Right $ AuthHash { authHash = hash }
+
     handleGetRegister :: Handler AuthToken
     handleGetRegister = do
       now <- MonadIO.liftIO POSIXTime.getPOSIXTime
@@ -101,8 +151,8 @@ authServant pool = emptyServer
         Right () -> do
           let email = encodeText $ authEmail payload
 
-          eitherEmailExists <- execRedis pool $ findUserRedis email
-          case eitherEmailExists of
+          isRegistered <- execRedis pool $ findUserByEmailRedis email
+          case isRegistered of
             Left err -> handleRedisError err
             Right True -> handleDuplicateRegistration email
             Right False -> do
@@ -122,8 +172,8 @@ authServant pool = emptyServer
         Right () -> do
           let email = encodeText $ authEmail payload
 
-          eitherEmailExists <- execRedis pool $ findUserRedis email
-          case eitherEmailExists of
+          isRegistered <- execRedis pool $ findUserByEmailRedis email
+          case isRegistered of
             Left err -> handleRedisError err
             Right False -> handlePhantomLogin email
             Right True -> do
@@ -151,8 +201,8 @@ authServant pool = emptyServer
               nonce <- MonadIO.liftIO generateNonce
               let hash = generateAuthHash now nonce $ TextEnc.decodeUtf8 email
 
-              eitherEmailExists <- execRedis pool $ findUserRedis email
-              case eitherEmailExists of
+              isRegistered <- execRedis pool $ findUserByEmailRedis email
+              case isRegistered of
                 Left err -> handleRedisError err
                 Right True -> do
                   MonadIO.liftIO $ putStrLn $ "Login: " ++ show email
@@ -184,75 +234,10 @@ authServant pool = emptyServer
       MonadIO.liftIO $ putStrLn $ "Validation Error: " <> show err
       exec $ Left (err401 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Validation Error: " <> show err)]) })
 
-    handleRedisError :: Redis.Reply -> Handler a
-    handleRedisError err = do
-      MonadIO.liftIO $ putStrLn $ "Redis Error: " <> show err
-      exec $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis Error: " <> show err)]) })
-
-----
-
--- | Redis Schema:
--- [hash] tokens: [token -> email]
--- [hash] hashes: [hash -> email]
--- [set] users -> [email]
--- [hash] [email] -> [hash, created_on, accessed_on]
-
-userMetadataKey :: BS.ByteString -> BS.ByteString
-userMetadataKey email = "user:" <> email
-
-encodeText :: Text.Text -> BS.ByteString
-encodeText text = TextEnc.encodeUtf8 text
-
-encodeTimestamp :: POSIXTime.POSIXTime -> BS.ByteString
-encodeTimestamp now = BSU.fromString $ show (floor now :: Int)
-
-hExpire :: BS.ByteString -> BS.ByteString -> BS.ByteString -> Redis.Redis (Either Redis.Reply Redis.Status)
-hExpire key seconds field = Redis.sendRequest ["HEXPIRE", key, seconds, "FIELDS", "1", field]
-
-setAuthTokenRedis :: BS.ByteString -> BS.ByteString -> Redis.Redis (Redis.TxResult ())
-setAuthTokenRedis token email = Redis.multiExec $ do
-  _ <- Redis.hset "tokens" token email
-  _ <- Redis.liftRedis $ hExpire "tokens" token "300"
-  return $ pure ()
-
-getAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f (Maybe BSU.ByteString))
-getAuthTokenRedis token = Redis.hget "tokens" token
-
-delAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Integer)
-delAuthTokenRedis token = Redis.hdel "tokens" [token]
-
-findUserRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Bool)
-findUserRedis email = Redis.sismember "users" email
-
-loginRedis :: BSU.ByteString -> BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
-loginRedis now email hash = Redis.multiExec $ do
-  _ <- Redis.hset "hashes" hash email
-  _ <- Redis.hset (userMetadataKey email) "hash" hash
-  _ <- Redis.hset (userMetadataKey email) "accessed_on" now
-  return $ pure ()
-
--- hashes: hgetall from hashes and filter out email
-_logoutRedis :: Redis.RedisCtx m f => [BSU.ByteString] -> m (f Integer)
-_logoutRedis hashes = Redis.hdel "hashes" hashes
-
-registerRedis :: BSU.ByteString -> BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
-registerRedis now email hash = Redis.multiExec $ do
-  _ <- Redis.sadd "users" [email]
-  _ <- Redis.hset "hashes" hash email
-  _ <- Redis.hset (userMetadataKey email) "hash" hash
-  _ <- Redis.hset (userMetadataKey email) "created_on" now
-  _ <- Redis.hset (userMetadataKey email) "accessed_on" now
-  return $ pure ()
-
--- hashes: hgetall from hashes and filter out email
-_deleteRedis :: BSU.ByteString -> [BSU.ByteString] -> Redis.Redis (Redis.TxResult ())
-_deleteRedis email hashes = Redis.multiExec $ do
-  _ <- Redis.hdel "hashes" hashes
-  _ <- Redis.srem "users" [email]
-  _ <- Redis.del [(userMetadataKey email)]
-  return $ pure ()
-
-----
+handleRedisError :: Redis.Reply -> Handler a
+handleRedisError err = do
+  MonadIO.liftIO $ putStrLn $ "Redis Error: " <> show err
+  exec $ Left (err500 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Redis Error: " <> show err)]) })
 
 encodeBase64BS :: BS.ByteString -> Text.Text
 encodeBase64BS bs = Base64.extractBase64 $ Base64BS.encodeBase64 bs
@@ -266,12 +251,12 @@ generateNonce = BS.pack <$> Monad.replicateM 32 (Random.randomRIO (0 :: Word.Wor
 generateAuthHash :: POSIXTime.POSIXTime -> BS.ByteString -> Text.Text -> Hash
 generateAuthHash now nonce email = Text.pack $ SHA.showDigest hash2
   where
-    now' = BSL.fromStrict $ BSU.fromString $ show (floor now :: Int)
+    now' = BSL.fromStrict $ encodeString $ show (floor now :: Int)
     nonce' = BSL.fromStrict nonce
     email' = BSL.fromStrict $ TextEnc.encodeUtf8 email
     secret = BSL.fromStrict $ TextEnc.encodeUtf8 "secret"
     hash1 = SHA.sha512 $ BSL.concat [ nonce' , email' , now', secret ]
-    hash1' = BSL.fromStrict $ BSU.fromString $ SHA.showDigest hash1
+    hash1' = BSL.fromStrict $ encodeString $ SHA.showDigest hash1
     hash2 = SHA.hmacSha512 secret hash1'
 
 generateToken :: POSIXTime.POSIXTime -> TokenState -> Token
@@ -281,7 +266,7 @@ generateToken now state = Text.intercalate "." encodedToken
     secret = BSL.fromStrict $ TextEnc.encodeUtf8 "secret"
     signature = SHA.showDigest $ SHA.hmacSha256 secret tokenData
     expiry = show (floor $ now + 60 * 5 :: Int)
-    token = state ++ (map BSU.fromString [expiry,  signature])
+    token = state ++ (map encodeString [expiry,  signature])
     encodedToken = map (encodeBase64BS) token
 
 validateToken :: POSIXTime.POSIXTime -> Text.Text -> TokenState -> Either Text.Text ()
@@ -333,7 +318,7 @@ validateState decodedState expectedState =
 
 validateSignature :: BS.ByteString -> TokenState -> Either Text.Text ()
 validateSignature signature expectedState =
-  if signature == BSU.fromString expectedSignature
+  if signature == encodeString expectedSignature
     then Right ()
     else Left "Invalid signature"
   where
