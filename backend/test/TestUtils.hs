@@ -5,7 +5,6 @@ module TestUtils where
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 import qualified Data.IORef as IORef
 
 import Test.Hspec
@@ -16,33 +15,28 @@ import AppState
 defaultTestConfig :: AppConfig
 defaultTestConfig = AppConfig
   { configSystemTau = 0.5
-  , configStateRef = error "configStateRef should be set by test runner"
+  , configStateHandle = error "configStateHandle should be set by test runner"
   , configOptions = allTestOptionsSet
   }
 
-evalAppTest :: App a -> Maybe AppConfig -> AppState -> IO a
-evalAppTest action mConfig initState =
-  fst <$> runAppTest action mConfig initState
-
-execAppTest :: App a -> Maybe AppConfig -> AppState -> IO AppState
-execAppTest action mConfig initState = do
-  ref <- IORef.newIORef initState
-  (_, finalRef) <- runAppTestRef action mConfig ref
-  IORef.readIORef finalRef
-
-runAppTest :: App a -> Maybe AppConfig -> AppState -> IO (a, AppState)
-runAppTest action mConfig initState = do
-  ref <- IORef.newIORef initState
-  (result, finalRef) <- runAppTestRef action mConfig ref
-  finalState <- IORef.readIORef finalRef
-  pure (result, finalState)
-
-runAppTestRef :: App a -> Maybe AppConfig -> IORef.IORef AppState -> IO (a, IORef.IORef AppState)
-runAppTestRef action mConfig stateRef = do
+evalAppTest :: App a -> Maybe AppConfig -> IO a
+evalAppTest action mConfig = do
+  (_, handle) <- mkIORefHandle
   let config = Maybe.fromMaybe defaultTestConfig mConfig
-      finalConfig = config { configStateRef = stateRef }
+      finalConfig = config { configStateHandle = handle }
+  MonadReader.runReaderT action finalConfig
+
+execAppTest :: App a -> Maybe AppConfig -> IO a
+execAppTest action mConfig = evalAppTest action mConfig
+
+runAppAndGetRefState :: App a -> Maybe AppConfig -> IO (a, AppState)
+runAppAndGetRefState action mConfig = do
+  (ref, handle) <- mkIORefHandle
+  let config = Maybe.fromMaybe defaultTestConfig mConfig
+      finalConfig = config { configStateHandle = handle }
   result <- MonadReader.runReaderT action finalConfig
-  pure (result, stateRef)
+  finalState <- IORef.readIORef ref
+  pure (result, finalState)
 
 shouldBeApproxPrec :: (Fractional a, Ord a, Show a) => a -> a -> a -> Expectation
 shouldBeApproxPrec margin actual expected =
@@ -76,24 +70,3 @@ allTestOptions = [optA, optB, optC, optD]
 
 allTestOptionsSet :: Set.Set Option
 allTestOptionsSet = Set.fromList allTestOptions
-
-mkAppState :: Set.Set Option -> [(UserId, UserState)] -> AppState
-mkAppState _options userStatesList = initialState -- Options arg ignored
-  { stateUserStates = Map.fromList userStatesList
-  }
-
-mkUserState :: Map.Map OptionId Glicko -> UserState
-mkUserState glickoMap = UserState
-  { userGlickos = glickoMap
-  }
-
-setupStateSingleUser :: UserId -> Set.Set Option -> AppState
-setupStateSingleUser userId options =
-  let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
-      uState = mkUserState glicko
-  in mkAppState options [(userId, uState)]
-
-simpleUserState :: Set.Set Option -> UserState
-simpleUserState options =
-  let glicko = Map.fromSet (const initialGlicko) (Set.map optionId options)
-  in mkUserState glicko

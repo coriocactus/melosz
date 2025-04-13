@@ -4,86 +4,97 @@ module RatingSpec where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.List as List
+import qualified Data.Ord as Ord
 import Test.Hspec
 
 import Types
 import AppState
 import Rating
+import Glicko2
 
 import TestUtils
 
 spec :: Spec
-spec = describe "Rating (Glicko-2)" $ do
+spec = describe "Rating" $ do
   let testOptsSet = Set.fromList [optA, optB, optC]
-      testConfigWithOpts = defaultTestConfig { configOptions = testOptsSet }
+      testConfigWithOpts = Just $ defaultTestConfig { configOptions = testOptsSet, configSystemTau = 0.5 }
+      oidA = optionId optA
+      oidB = optionId optB
+      oidC = optionId optC
 
-      mkInitialState :: Map.Map OptionId Glicko -> AppState
-      mkInitialState specificGlickoMap =
-          let fullGlickoMap = Map.union specificGlickoMap (Map.fromSet (const initialGlicko) (Set.map optionId testOptsSet))
-              uState = mkUserState fullGlickoMap
-          in mkAppState testOptsSet [(testUser1, uState)]
+      pA_initial = initialGlicko { glickoRating = 1600, glickoDeviation = 200, glickoVolatility = 0.05 }
+      pB_initial = initialGlicko { glickoRating = 1450, glickoDeviation = 150, glickoVolatility = 0.06 }
 
-      pA = initialGlicko { glickoRating = 1600, glickoDeviation = 200, glickoVolatility = 0.05 }
-      pB = initialGlicko { glickoRating = 1450, glickoDeviation = 150, glickoVolatility = 0.06 }
-
-  describe "getUserRating" $ do
-    it "returns initial Glicko rating for unknown user/option" $ do
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigWithOpts) initialState
-      rating `shouldBe` defaultRating
-
-    it "returns specific Glicko rating when set in user state" $ do
-      let state = mkInitialState (Map.singleton (optionId optA) pA)
-      rating <- evalAppTest (getUserRating testUser1 optA) (Just testConfigWithOpts) state
-      rating `shouldBe` glickoRating pA
+      setupSpecificRatings :: App ()
+      setupSpecificRatings = do
+        ensureStorableUser testUser1 testOptsSet
+        updateStorableRatings testUser1 oidA pA_initial oidC initialGlicko
+        updateStorableRatings testUser1 oidB pB_initial oidC initialGlicko
 
   describe "getUserRatings" $ do
-     it "returns initial ratings sorted descending for multiple options" $ do
-      let state = mkInitialState Map.empty
-      ratings <- evalAppTest (getUserRatings testUser1 [optA, optB, optC]) (Just testConfigWithOpts) state
-      map snd ratings `shouldBe` replicate 3 defaultRating
+    it "returns initial ratings sorted descending for multiple options after setupUser" $ do
+      ratings <- evalAppTest (setupUser testUser1 >> getUserRatings testUser1 [optA, optB, optC]) testConfigWithOpts
+
+      map snd ratings `shouldSatisfy` all (\r -> abs (r - defaultRating) < 1.0)
       Set.fromList (map fst ratings) `shouldBe` testOptsSet
+
+      ratings `shouldBe` List.sortBy (Ord.comparing (Ord.Down . snd)) ratings
+
+    it "returns specific ratings sorted descending after setup" $ do
+      ratings <- evalAppTest (setupSpecificRatings >> getUserRatings testUser1 [optA, optB, optC]) testConfigWithOpts
+      let ratingMap = Map.fromList $ map (\(opt, r) -> (optionId opt, r)) ratings
+
+      let displayA = glickoRating $ glickoToDisplay pA_initial
+      let displayB = glickoRating $ glickoToDisplay pB_initial
+      let displayC = glickoRating $ glickoToDisplay initialGlicko
+
+      ratingMap Map.! oidA `shouldBeApprox` displayA
+      ratingMap Map.! oidB `shouldBeApprox` displayB
+      ratingMap Map.! oidC `shouldBeApprox` displayC
+
+      ratings `shouldBe` List.sortBy (Ord.comparing (Ord.Down . snd)) ratings
 
   describe "updateRatings" $ do
     it "updates both options' glickos after a match (Win for optA)" $ do
-      let startState = mkInitialState (Map.fromList [(optionId optA, pA), (optionId optB, pB)])
-          pA_initial = pA
-          pB_initial = pB
+      let action = do
+            setupSpecificRatings
+            updateRatings testUser1 optA optB Win
+            (,) <$> getStorableGlicko testUser1 oidA <*> getStorableGlicko testUser1 oidB
 
-      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigWithOpts) startState
-      let finalGlickos = userGlickos $ stateUserStates finalState Map.! testUser1
-          pA_final = finalGlickos Map.! optionId optA
-          pB_final = finalGlickos Map.! optionId optB
+      (pA_final, pB_final) <- evalAppTest action testConfigWithOpts
 
       glickoRating pA_final `shouldSatisfy` (> glickoRating pA_initial)
       glickoRating pB_final `shouldSatisfy` (< glickoRating pB_initial)
 
-      glickoDeviation pA_final `shouldSatisfy` (>= 0)
-      glickoDeviation pB_final `shouldSatisfy` (>= 0)
+      glickoDeviation pA_final `shouldSatisfy` (\rd -> rd >= 30 && rd <= 350)
+      glickoDeviation pB_final `shouldSatisfy` (\rd -> rd >= 30 && rd <= 350)
       glickoVolatility pA_final `shouldSatisfy` (>= 0)
       glickoVolatility pB_final `shouldSatisfy` (>= 0)
 
     it "updates both options' glickos after a match (Loss for optA)" $ do
-      let startState = mkInitialState (Map.fromList [(optionId optA, pA), (optionId optB, pB)])
-          pA_initial = pA
-          pB_initial = pB
+      let action = do
+            setupSpecificRatings
+            updateRatings testUser1 optA optB Loss
+            (,) <$> getStorableGlicko testUser1 oidA <*> getStorableGlicko testUser1 oidB
 
-      finalState <- execAppTest (updateRatings testUser1 optA optB Loss) (Just testConfigWithOpts) startState
-      let finalGlickos = userGlickos $ stateUserStates finalState Map.! testUser1
-          pA_final = finalGlickos Map.! optionId optA
-          pB_final = finalGlickos Map.! optionId optB
+      (pA_final, pB_final) <- evalAppTest action testConfigWithOpts
 
       glickoRating pA_final `shouldSatisfy` (< glickoRating pA_initial)
       glickoRating pB_final `shouldSatisfy` (> glickoRating pB_initial)
 
-      glickoDeviation pA_final `shouldSatisfy` (>= 0)
-      glickoDeviation pB_final `shouldSatisfy` (>= 0)
+      glickoDeviation pA_final `shouldSatisfy` (\rd -> rd >= 30 && rd <= 350)
+      glickoDeviation pB_final `shouldSatisfy` (\rd -> rd >= 30 && rd <= 350)
       glickoVolatility pA_final `shouldSatisfy` (>= 0)
       glickoVolatility pB_final `shouldSatisfy` (>= 0)
 
-    it "does not modify state if user does not exist" $ do
-      let state = initialState
-      finalState <- execAppTest (updateRatings testUser1 optA optB Win) (Just testConfigWithOpts) state
-      stateUserStates finalState `shouldBe` Map.empty
+    it "does not modify ratings if user does not exist (ensureUser not called)" $ do
+      (resMapBefore, stateBefore) <- runAppAndGetRefState (getAllStorableRatings testUser1) testConfigWithOpts
+      (resMapAfter, stateAfter) <- runAppAndGetRefState (updateRatings testUser1 optA optB Win >> getAllStorableRatings testUser1) testConfigWithOpts
+
+      resMapBefore `shouldBe` Map.empty
+      resMapAfter `shouldBe` Map.empty
+      stateBefore `shouldBe` stateAfter
 
   describe "ratingsToMap" $ do
     it "converts a list of (Option, Double) to Map OptionId Double" $ do

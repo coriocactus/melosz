@@ -38,8 +38,6 @@ updateRatings uid option1 option2 result = do
       oid1 = optionId option1
       oid2 = optionId option2
 
-  ensureStorableUser uid (configOptions config)
-
   p1 <- getStorableGlicko uid oid1
   p2 <- getStorableGlicko uid oid2
 
