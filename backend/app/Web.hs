@@ -47,7 +47,6 @@ runWeb port = do
 runner :: Int -> App AppConfig -> IO ()
 runner port app = do
   let initialOptions = colourfulOptions
-      user = "coriocactus"
 
   initialStateRef <- MonadIO.liftIO $ IORef.newIORef initialState
   let initialConfig = AppConfig

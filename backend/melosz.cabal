@@ -8,7 +8,7 @@ common common-warnings
     -Wall
     -Wcompat
     -Widentities
-    -Wpartial-fields 
+    -Wpartial-fields
     -Wincomplete-record-updates
     -Wincomplete-uni-patterns
     -Wmissing-home-modules
@@ -54,15 +54,15 @@ library
   import: common-options, common-warnings
   hs-source-dirs: src
   exposed-modules:
-    Types AppState
-    Glicko2 Rating Scheduler Marshal Ranking
+    Types AppState Glicko2
+    Rating Scheduler Marshal Ranking
 
 executable api
   import: common-options, common-warnings, api-deps
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
   hs-source-dirs: api
-  main-is: Main.hs 
+  main-is: Main.hs
   other-modules:
     Auth, Redis, Actions
 
