@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     /* --- Base Options --- */
-    "lib": [ "ESNext", "DOM", "DOM.Iterable" ],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "target": "ESNext", // Target modern JavaScript features (Bun/browsers handle this)
     "module": "ESNext", // Use modern ES modules
     "allowJs": false, // Disallow JS files to enforce TypeScript usage
@@ -11,20 +11,20 @@
     "moduleResolution": "bundler", // How modules are found, aligns with Bun/modern bundlers
     "allowImportingTsExtensions": true, // Required by Bun to import '.ts' files directly
     "verbatimModuleSyntax": true, // More explicit import/export handling
-    "noEmit": true,              // TypeScript (`tsc`) only performs type checking; Bun handles transpiling/bundling
+    "noEmit": true, // TypeScript (`tsc`) only performs type checking; Bun handles transpiling/bundling
 
     /* --- Best Practices --- */
-    "strict": true,                  // Enable all core strict type-checking options
-    "skipLibCheck": true,            // Skip type checking of declaration files (*.d.ts) for faster checks
-    "noFallthroughCasesInSwitch": true,// Report errors for fallthrough cases in switch statements
+    "strict": true, // Enable all core strict type-checking options
+    "skipLibCheck": true, // Skip type checking of declaration files (*.d.ts) for faster checks
+    "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statements
     "noUncheckedIndexedAccess": true, // Accessing object properties via index signature adds `| undefined`
-    "noUnusedLocals": true,          // Report errors on unused local variables
-    "noUnusedParameters": true,      // Report errors on unused function parameters
+    "noUnusedLocals": true, // Report errors on unused local variables
+    "noUnusedParameters": true, // Report errors on unused function parameters
     "noPropertyAccessFromIndexSignature": true, // Force bracket notation `obj['prop']` for index signatures
 
     /* --- Bun Specific --- */
-    "types": ["@types/bun"]          // Ensures Bun's specific APIs (Bun.serve, Bun.file etc.) are typed if used server-side later OR in build scripts
+    "types": ["@types/bun"] // Ensures Bun's specific APIs (Bun.serve, Bun.file etc.) are typed if used server-side later OR in build scripts
   },
-  "include": [ "*.ts" ],
-  "exclude": [ "node_modules", "dist" ]
+  "include": ["*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -1,4 +1,4 @@
-import type { Option } from './api.ts';
+import type { Option } from "./api.ts";
 
 /**
  * Mounts the rankings view component.
@@ -25,44 +25,49 @@ export function RankingsView(el: HTMLElement) {
     </div>
   `;
 
-  const tbody = el.querySelector<HTMLTableSectionElement>('[data-rankings-body]')!;
+  const tbody = el.querySelector<HTMLTableSectionElement>(
+    "[data-rankings-body]",
+  )!;
 
   // Event listener to update the view when new data arrives
-  el.addEventListener('renderRankings', ((e: CustomEvent<[Option, number][]>) => {
-    const rankings = e.detail;
-    update(rankings);
-  }) as EventListener);
+  el.addEventListener(
+    "renderRankings",
+    ((e: CustomEvent<[Option, number][]>) => {
+      const rankings = e.detail;
+      update(rankings);
+    }) as EventListener,
+  );
 
   function update(rankings: [Option, number][]) {
     // Clear previous rankings
-    tbody.innerHTML = '';
+    tbody.innerHTML = "";
 
     if (rankings.length === 0) {
       const row = tbody.insertRow();
       const cell = row.insertCell();
       cell.colSpan = 3;
-      cell.textContent = 'No rankings available yet.';
-      cell.className = 'text-center text-gray-500 py-4';
+      cell.textContent = "No rankings available yet.";
+      cell.className = "text-center text-gray-500 py-4";
     } else {
       rankings.forEach(([option, rating], index) => {
         const rank = index + 1;
         const row = tbody.insertRow();
-        row.className = 'hover:bg-gray-50'; // Add hover effect
+        row.className = "hover:bg-gray-50"; // Add hover effect
 
         // Rank cell
         const rankCell = row.insertCell();
         rankCell.textContent = String(rank);
-        rankCell.className = 'border px-4 py-2';
+        rankCell.className = "border px-4 py-2";
 
         // Option Name cell
         const nameCell = row.insertCell();
         nameCell.textContent = option.name;
-        nameCell.className = 'border px-4 py-2';
+        nameCell.className = "border px-4 py-2";
 
         // Rating cell
         const ratingCell = row.insertCell();
         ratingCell.textContent = rating.toFixed(2); // Format rating to 2 decimal places
-        ratingCell.className = 'border px-4 py-2';
+        ratingCell.className = "border px-4 py-2";
       });
     }
   }
