@@ -159,7 +159,7 @@ authServant pool = emptyServer
               let token = encodeText $ generateToken now [ "123", "234", "345", email ]
               _ <- execRedis pool $ setAuthTokenRedis token email
 
-              MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:8080/auth/" <> token)
+              MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:3000/auth/" <> token)
               exec $ Right NoContent
 
     handlePostLogin :: AuthPayload -> Handler NoContent
@@ -180,7 +180,7 @@ authServant pool = emptyServer
               let token = encodeText $ generateToken now [ "123", "234", "345", email ]
               _ <- execRedis pool $ setAuthTokenRedis token email
 
-              MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:8080/auth/" <> token)
+              MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:3000/auth/" <> token)
               exec $ Right NoContent
 
     handleGetAuth :: Token -> Handler AuthHash
