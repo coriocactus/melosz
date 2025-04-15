@@ -1,9 +1,3 @@
-/**
- * Mounts the Register Page component.
- * Handles user input for email and dispatches an event to request registration.
- * Displays status messages based on events received from the App component.
- * @param el The container element for the register page view.
- */
 export function RegisterPage(el: HTMLElement) {
   let isLoading = false;
   let message = { text: "", type: "info" }; // type: 'info', 'success', 'error'

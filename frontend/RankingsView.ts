@@ -1,10 +1,5 @@
 import type { Option } from "./api.ts";
 
-/**
- * Mounts the rankings view component.
- * Handles displaying the sorted list of options and their ratings.
- * @param el The container element for the rankings view.
- */
 export function RankingsView(el: HTMLElement) {
   // Initial structure with Tailwind classes
   el.innerHTML = `

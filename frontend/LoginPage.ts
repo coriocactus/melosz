@@ -1,14 +1,7 @@
-/**
- * Mounts the Login Page component.
- * Handles user input for email and dispatches an event to request login.
- * Displays status messages based on events received from the App component.
- * @param el The container element for the login page view.
- */
 export function LoginPage(el: HTMLElement) {
   let isLoading = false;
   let message = { text: "", type: "info" }; // type: 'info', 'success', 'error'
 
-  // Set base HTML structure
   el.innerHTML = `
         <div class="max-w-sm mx-auto card bg-white p-6 rounded shadow-md">
             <h2 class="text-2xl font-semibold text-center mb-4">Login</h2>

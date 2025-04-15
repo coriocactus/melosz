@@ -1,10 +1,5 @@
 import type { Option, OptionId } from "./api.ts";
 
-/**
- * Mounts the comparison view component.
- * Handles displaying the next pair and dispatching the user's choice.
- * @param el The container element for the comparison view.
- */
 export function ComparisonView(el: HTMLElement) {
   let currentPair: [Option, Option] | null = null;
 

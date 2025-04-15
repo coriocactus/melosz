@@ -3,7 +3,6 @@ import type { ComparisonSubmission, UserSession } from "./api.ts";
 import {
   AUTH_COOKIE_GUEST_HOURS,
   AUTH_COOKIE_NAME,
-  // Import AuthPayload as a type
   type AuthPayload,
   getCompareData,
   getCookie,
@@ -17,29 +16,20 @@ import {
 } from "./api.ts";
 import { ComparisonView } from "./ComparisonView.ts";
 import { RankingsView } from "./RankingsView.ts";
-import { LoginPage } from "./LoginPage.ts"; // Import Login Page
-import { RegisterPage } from "./RegisterPage.ts"; // Import Register Page
+import { LoginPage } from "./LoginPage.ts";
+import { RegisterPage } from "./RegisterPage.ts";
 
-// Define auth status types
 type AuthStatus = "unknown" | "initializing" | "guest" | "registered" | "error";
-// Define view types for routing
 type CurrentView = "app" | "login" | "register";
 
-/**
- * Initializes the main application UI.
- * Handles routing, authentication, data flow, and sub-component mounting.
- * @param rootElement The root DOM element to mount the application into.
- */
 export function initializeApp(rootElement: HTMLElement) {
   // --- State ---
   let currentData: UserSession | null = null;
   let isLoadingApi = false;
   let currentError: string | null = null;
   let authStatus: AuthStatus = "unknown";
-  let currentView: CurrentView = "app"; // Default view
+  let currentView: CurrentView = "app";
 
-  // --- HTML Structure ---
-  // (HTML structure remains the same)
   rootElement.innerHTML = `
     <div class="max-w-4xl mx-auto p-4 space-y-6">
         <h1 class="text-3xl font-bold text-center mb-4">melosz</h1>

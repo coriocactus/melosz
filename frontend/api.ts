@@ -10,8 +10,8 @@ export interface Option {
 }
 
 export interface UserSession {
-  usNextPair: [Option, Option] | null; // Use null for Maybe Nothing
-  usRankings: [Option, number][]; // Array of [Option, Rating]
+  usNextPair: [Option, Option] | null;
+  usRankings: [Option, number][];
 }
 
 export interface ComparisonSubmission {
@@ -26,27 +26,14 @@ export interface APIError {
 
 // --- Cookie Helpers ---
 
-/**
- * Sets a cookie.
- * @param name Cookie name.
- * @param value Cookie value.
- * @param hours Expiry time in hours from now. If 0 or null, session cookie. If negative, deletes cookie. If very large (e.g., > 8760*10), treated as "permanent".
- */
 export function setCookie(name: string, value: string, hours: number | null) {
   let expires = "";
-  const farFutureHours = 8760 * 10; // Approx 10 years threshold for "permanent"
 
   if (hours) {
     if (hours < 0) {
       // Delete cookie
       expires = "; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    } else if (hours >= farFutureHours) {
-      // "Permanent" cookie setting using a far future date
-      const date = new Date();
-      date.setTime(date.getTime() + (hours * 60 * 60 * 1000));
-      expires = "; expires=" + date.toUTCString();
     } else {
-      // Standard expiry
       const date = new Date();
       date.setTime(date.getTime() + (hours * 60 * 60 * 1000));
       expires = "; expires=" + date.toUTCString();
@@ -56,15 +43,9 @@ export function setCookie(name: string, value: string, hours: number | null) {
   // SameSite=Lax is a reasonable default. Secure should be added if served over HTTPS.
   const cookieString = name + "=" + (value || "") + expires +
     "; path=/; SameSite=Lax"; // Add "; Secure" if using HTTPS
-  // console.log("Setting cookie:", cookieString); // Debug
   document.cookie = cookieString;
 }
 
-/**
- * Gets a cookie value by name.
- * @param name Cookie name.
- * @returns Cookie value or null if not found.
- */
 export function getCookie(name: string): string | null {
   const nameEQ = name + "=";
   const ca = document.cookie.split(";");
@@ -193,8 +174,8 @@ export async function handleAPIProxy(
 
 export const API_BASE_URL = "http://localhost:8080"; // Backend API base URL
 export const AUTH_COOKIE_NAME = "x-auth-hash";
-export const AUTH_COOKIE_GUEST_HOURS = 1; // Guest hash expiry in hours (matches backend for renewal)
-export const AUTH_COOKIE_PERMANENT_HOURS = 8760 * 10; // ~10 years for "permanent" login
+export const AUTH_COOKIE_GUEST_HOURS = 1;
+export const AUTH_COOKIE_PERMANENT_HOURS = 365 * 24;
 
 async function fetchAPI<T>(
   endpoint: string,
@@ -339,7 +320,6 @@ export function getGuestHash(): Promise<AuthHash> {
 /** Fetches the next comparison pair and current rankings for the authenticated user */
 export function getCompareData(): Promise<UserSession> {
   console.log(`API: Fetching compare data...`);
-  // Auth hash is implicitly added by fetchAPI helper based on cookie
   return fetchAPI<UserSession>(`/compare`, { method: "GET" });
 }
 
@@ -348,10 +328,8 @@ export function postComparisonResult(
   submission: ComparisonSubmission,
 ): Promise<UserSession> {
   console.log(`API: Posting comparison...`, submission);
-  // Auth hash is implicitly added by fetchAPI helper based on cookie
   return fetchAPI<UserSession>(`/compare`, {
     method: "POST",
-    // Content-Type: application/json is added automatically by fetchAPI for string bodies
     body: JSON.stringify(submission),
   });
 }
@@ -361,7 +339,6 @@ export function postComparisonResult(
 /** Gets a temporary token required to initiate the login process */
 export function getLoginToken(): Promise<AuthTokenResponse> {
   console.log(`API: Getting login token...`);
-  // This request should not require prior authentication
   return fetchAPI<AuthTokenResponse>("/login", {
     method: "GET",
     headers: { "Authorization": "" },
@@ -369,12 +346,11 @@ export function getLoginToken(): Promise<AuthTokenResponse> {
 }
 
 /** Sends the email and temporary token to the backend to trigger the login email */
-export function postLoginPayload(payload: AuthPayload): Promise<void> { // Expecting 204 No Content
+export function postLoginPayload(payload: AuthPayload): Promise<void> {
   console.log(`API: Posting login payload for email: ${payload.email}`);
-  // This request also does not require prior authentication
   return fetchAPI<void>("/login", {
     method: "POST",
-    headers: { "Authorization": "" }, // Explicitly no auth needed
+    headers: { "Authorization": "" },
     body: JSON.stringify(payload),
   });
 }
@@ -382,7 +358,6 @@ export function postLoginPayload(payload: AuthPayload): Promise<void> { // Expec
 /** Gets a temporary token required to initiate the registration process */
 export function getRegisterToken(): Promise<AuthTokenResponse> {
   console.log(`API: Getting register token...`);
-  // This request should not require prior authentication
   return fetchAPI<AuthTokenResponse>("/register", {
     method: "GET",
     headers: { "Authorization": "" },
@@ -390,12 +365,11 @@ export function getRegisterToken(): Promise<AuthTokenResponse> {
 }
 
 /** Sends the email and temporary token to the backend to trigger the registration email */
-export function postRegisterPayload(payload: AuthPayload): Promise<void> { // Expecting 204 No Content
+export function postRegisterPayload(payload: AuthPayload): Promise<void> {
   console.log(`API: Posting register payload for email: ${payload.email}`);
-  // This request also does not require prior authentication
   return fetchAPI<void>("/register", {
     method: "POST",
-    headers: { "Authorization": "" }, // Explicitly no auth needed
+    headers: { "Authorization": "" },
     body: JSON.stringify(payload),
   });
 }
