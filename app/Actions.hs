@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Actions where
 
 import qualified Control.Monad.IO.Class as MonadIO

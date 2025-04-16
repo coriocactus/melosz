@@ -7,16 +7,20 @@ module Main where
 
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
-import qualified Data.Aeson as Aeson
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
-import qualified GHC.Generics as Generics
+import qualified Data.ByteString.Char8 as BSC
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
-import qualified Network.Wai.Middleware.Cors as Cors
 import qualified Network.Wai.Middleware.Gzip as Gzip
 import qualified Network.Wai.Middleware.RequestLogger as RL
+import qualified Servant.HTML.Blaze as ServantBlaze
+import qualified Text.Blaze.Html.Renderer.Utf8 as R
+import qualified Text.Blaze.Html5 as H
+import qualified Text.Blaze.Html5.Attributes as A
+import qualified Text.Printf as Printf
+import qualified Web.FormUrlEncoded as Form
 
 import Servant
 
@@ -25,14 +29,15 @@ import AppState
 import Rating
 import Scheduler
 
-import Actions
 import Redis
+import Actions
+import Templates
 import Auth
 
 -- application
 
 main :: IO ()
-main = launch 8080
+main = launch 5002
 
 launch :: Int -> IO ()
 launch port = do
@@ -67,92 +72,76 @@ colourfulOptions = Set.fromList
 
 -- webserver
 
-corsMiddleware :: Wai.Middleware
-corsMiddleware = Cors.cors $ const $ Just Cors.simpleCorsResourcePolicy
-  { Cors.corsOrigins = Just (["http://localhost:3000"], True)
-  , Cors.corsMethods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  , Cors.corsRequestHeaders = ["Content-Type", "Authorization", "Accept"]
-  }
-
 application :: AppConfig -> RedisPool -> Wai.Application
-application cfg pool = corsMiddleware $
-  Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
+application cfg pool = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
   serveWithContext butler underButler (servants cfg pool)
 
-jsonErrorFormatters :: ErrorFormatters
-jsonErrorFormatters = defaultErrorFormatters
-  { bodyParserErrorFormatter = jsonErrorFormatter
-  , urlParseErrorFormatter = jsonErrorFormatter
-  , headerParseErrorFormatter = jsonErrorFormatter
-  , notFoundErrorFormatter = jsonNotFoundErrorFormatter
+errorFormatters :: ErrorFormatters
+errorFormatters = defaultErrorFormatters
+  { bodyParserErrorFormatter = errorFormatter
+  , urlParseErrorFormatter = errorFormatter
+  , headerParseErrorFormatter = errorFormatter
+  , notFoundErrorFormatter = notFoundFormatter
   }
 
-jsonErrorFormatter :: ErrorFormatter
-jsonErrorFormatter typeRep req errMsg =
-  let body = Aeson.encode $ Aeson.object
-        [ "error" Aeson..= errMsg
-        , "source" Aeson..= show typeRep
-        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
-        , "method" Aeson..= TextEnc.decodeUtf8 (Wai.requestMethod req)
-        ]
-  in err400 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
-
-jsonNotFoundErrorFormatter :: NotFoundErrorFormatter
-jsonNotFoundErrorFormatter req =
-  let body = Aeson.encode $ Aeson.object
-        [ "error" Aeson..= ("Not Found" :: Text.Text)
-        , "request_path" Aeson..= TextEnc.decodeUtf8 (Wai.rawPathInfo req)
-        ]
-  in err404 { errBody = body, errHeaders = [("Content-Type", "application/json;charset=utf-8")] }
-
 underButler :: Context '[ErrorFormatters]
-underButler = jsonErrorFormatters :. EmptyContext
+underButler = errorFormatters :. EmptyContext
 
 butler :: Proxy API
 butler = Proxy
 
-type API = AuthAPI
+type API = StaticAPI
+  :<|> AuthAPI
   :<|> Protect :> CompareAPI
 
 servants :: AppConfig -> RedisPool -> Server API
-servants cfg pool = authServant pool
+servants cfg pool = staticServant
+  :<|> authServant pool
   :<|> compareServant cfg pool
+
+-- base
+
+type StylesAPI = "styles" :> Raw
+type StaticAPI = StylesAPI
+
+staticServant :: Server StaticAPI
+staticServant = serveDirectoryWebApp "styles"
 
 -- comparison
 
-data UserSession = UserSession
-  { usNextPair :: Maybe (Option, Option)
-  , usRankings :: [(Option, Double)]
-  } deriving (Generics.Generic, Show)
-instance Aeson.ToJSON UserSession
+data ChooseFormData = ChooseFormData
+  { formWinnerId :: Text.Text
+  , formLoserId  :: Text.Text
+  } deriving (Show)
 
-instance Aeson.FromJSON ComparisonSubmission where
-  parseJSON = Aeson.withObject "ComparisonSubmission" $
-    \v -> ComparisonSubmission
-      <$> v Aeson..: "winnerId"
-      <*> v Aeson..: "loserId"
-data ComparisonSubmission = ComparisonSubmission
-  { csWinnerId :: OptionId
-  , csLoserId  :: OptionId
-  } deriving (Generics.Generic, Show)
-
-type CompareGetAPI = "compare" :> Get '[JSON] UserSession
-type ComparePostAPI = "compare" :> ReqBody '[JSON] ComparisonSubmission :> Post '[JSON] UserSession
+instance Form.FromForm ChooseFormData where
+  fromForm form = ChooseFormData
+    <$> Form.parseUnique "winnerId" form
+    <*> Form.parseUnique "loserId" form
 
 type CompareTestAPI = "compare" :> "test" :> Get '[JSON] NoContent
+type CompareGetAPI = "compare" :> Get '[ServantBlaze.HTML] H.Html
+type ComparePostAPI = "compare" :> ReqBody '[FormUrlEncoded] ChooseFormData :> Post '[ServantBlaze.HTML] H.Html
 
 type CompareAPI = EmptyAPI
+  :<|> CompareTestAPI
   :<|> CompareGetAPI
   :<|> ComparePostAPI
-  :<|> CompareTestAPI
 
 compareServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server CompareAPI
 compareServant cfg pool auth = emptyServer
+  :<|> handleTestCompare
   :<|> handleGetCompareData
   :<|> handlePostCompare
-  :<|> handleTestCompare
   where
-    fetchAndBuildSession :: UserId -> App (Either ServerError UserSession)
+    handleTestCompare :: Handler NoContent
+    handleTestCompare = do
+      MonadIO.liftIO $ putStrLn $ show auth
+      -- uid <- initUser pool auth
+      -- MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by " ++ show uid
+      pure NoContent
+
+    fetchAndBuildSession :: UserId -> App (Either ServerError H.Html)
     fetchAndBuildSession uid = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
       optionsList <- Set.toList <$> MonadReader.asks configOptions
@@ -161,27 +150,20 @@ compareServant cfg pool auth = emptyServer
       mPair <- getNextComparisonPair uid
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
-      pure $ Right $ UserSession
-        { usNextPair = mPair
-        , usRankings = currentRatings
-        }
+      pure $ Right $ mkComparePage uid mPair currentRatings
 
-    handleTestCompare :: Handler NoContent
-    handleTestCompare = do
-      uid <- initUser pool auth
-      MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by USER: " ++ show uid
-      pure NoContent
-
-    handleGetCompareData :: Handler UserSession
+    handleGetCompareData :: Handler H.Html
     handleGetCompareData = do
-      uid <- initUser pool auth
+      uid <- initUser pool auth "/compare"
+      MonadIO.liftIO $ putStrLn $ "Serving /compare for " ++ show uid
       execApp cfg $ fetchAndBuildSession uid
 
-    handlePostCompare :: ComparisonSubmission -> Handler UserSession
+    handlePostCompare :: ChooseFormData -> Handler H.Html
     handlePostCompare submission = do
-      uid <- initUser pool auth
-      let winnerId = csWinnerId submission
-          loserId  = csLoserId submission
+      uid <- initUser pool auth "/"
+      MonadIO.liftIO $ putStrLn $ "Processing POST /compare" ++ show uid ++ " with data: " ++ show submission
+      let winnerId = OptionId (TextEnc.encodeUtf8 $ formWinnerId submission)
+          loserId  = OptionId (TextEnc.encodeUtf8 $ formLoserId submission)
 
       execApp cfg $ do
         mWinnerOpt <- getOptionById winnerId
@@ -195,4 +177,71 @@ compareServant cfg pool auth = emptyServer
             fetchAndBuildSession uid
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
-            pure $ Left (err400 { errBody = Aeson.encode (Aeson.object ["error" Aeson..= ("Invalid Option ID provided" :: Text.Text)]) })
+            pure $ Left $ err400
+              { errHeaders = [("Content-Type", "text/html; charset=utf-8")]
+              , errBody = R.renderHtml $ mkMessageTemplate template
+              }
+              where
+                template = MessageTemplate
+                  { messageTitle = "error"
+                  , messageHeading = "option id not found"
+                  , messageLink = ("/compare", "try again")
+                  }
+
+mkComparePage :: UserId -> Maybe (Option, Option) -> [(Option, Double)] -> H.Html
+mkComparePage userId mPair rankings =
+  pageLayout ("Comparison for " <> TextEnc.decodeUtf8 (unUserId userId)) $ do
+    case mPair of
+      Just (opt1, opt2) -> mkComparisonSection opt1 opt2
+      Nothing -> H.div H.! A.class_ "completion-message" $ "No more pairs to compare based on current strategy."
+
+    H.div H.! A.class_ "results-grid" $ do
+      H.div H.! A.class_ "rankings-section" $ do
+        H.h2 "Current Rankings"
+        mkRankingsTable rankings
+
+mkComparisonSection :: Option -> Option -> H.Html
+mkComparisonSection opt1 opt2 = do
+  let oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
+      oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
+      postUrl = H.textValue $ Text.pack $ "/compare"
+
+  H.div H.! A.class_ "comparison-box" $ do
+    H.h3 "Which do you prefer?" H.! A.style "width: 100%; text-align: center; margin-bottom: 1em;"
+    H.div H.! A.style "display: flex; justify-content: space-around; width: 100%;" $ do
+      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
+        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
+        H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+          H.toHtml (BSC.unpack $ optionName opt1)
+
+      H.span H.! A.style "align-self: center; font-weight: bold;" $ " OR "
+
+      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "option-form" $ do
+        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
+        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
+        H.button H.! A.type_ "submit" H.! A.class_ "option-button" $
+          H.toHtml (BSC.unpack $ optionName opt2)
+
+mkRankingsTable :: [(Option, Double)] -> H.Html
+mkRankingsTable sortedRatings = H.table $ do
+  H.thead $ H.tr $ do
+    H.th "Rank"
+    H.th "Option"
+    H.th "Rating"
+  H.tbody $ do
+    mapM_ mkRankingRow (zip [1..] sortedRatings)
+  where
+    mkRankingRow :: (Int, (Option, Double)) -> H.Html
+    mkRankingRow (rank, (opt, rating)) = H.tr $ do
+      H.td $ H.toHtml rank
+      H.td $ H.toHtml (BSC.unpack $ optionName opt)
+      H.td $ H.toHtml (Printf.printf "%.1f" rating :: String)
+
+-- utils
+
+unUserId :: UserId -> BSC.ByteString
+unUserId (UserId bs) = bs
+
+unOptionId :: OptionId -> BSC.ByteString
+unOptionId (OptionId bs) = bs

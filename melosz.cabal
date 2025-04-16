@@ -26,23 +26,18 @@ common common-options
     random,
     text
 
-common app-deps
+common backing
   build-depends:
     SHA,
     base64,
     hedis,
     resource-pool,
-    servant-server,
     time,
     utf8-string,
     uuid,
-    uuid-types,
-    wai,
-    wai-cors,
-    wai-extra,
-    warp
+    uuid-types
 
-common web-deps
+common web
   build-depends:
     blaze-html,
     blaze-markup,
@@ -50,6 +45,7 @@ common web-deps
     servant-blaze,
     servant-server,
     wai,
+    wai-extra,
     warp
 
 library
@@ -60,16 +56,16 @@ library
     Rating Scheduler Ranking
 
 executable app
-  import: common-options, common-warnings, app-deps
+  import: common-options, common-warnings, web, backing
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
   hs-source-dirs: app
   main-is: Main.hs
   other-modules:
-    Actions, Redis, Auth
+    Actions, Redis, Templates, Auth, Colour
 
 executable demo-web
-  import: common-options, common-warnings, web-deps
+  import: common-options, common-warnings, web
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
   hs-source-dirs: demo

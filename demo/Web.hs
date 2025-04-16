@@ -135,12 +135,6 @@ throwRedirect link =
     uriPath' = Servant.uriPath $ Servant.linkURI link
     location = TextEnc.encodeUtf8 $ Text.pack $ "/" ++ uriPath'
 
-
-data HtmlComparisonStatus = HtmlComparisonStatus
-  { htmlStatusConsistency :: Double
-  , htmlStatusIsComplete :: Bool
-  }
-
 data ChooseFormData = ChooseFormData
   { formWinnerId :: Text.Text
   , formLoserId  :: Text.Text
