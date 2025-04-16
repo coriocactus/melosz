@@ -74,6 +74,7 @@ handleMissingAuth pool destination = do
   let email = encodeString uuid
       hash = generateAuthHash now nonce $ TextEnc.decodeUtf8 email
   _ <- execRedis pool $ makeGuestRedis email (encodeText hash)
+  _ <- extendGuest pool (UserId email) hash
   exec $ Left $ err307
     { errHeaders =
       [ ("location", TextEnc.encodeUtf8 destination)
@@ -164,7 +165,7 @@ authServant pool = emptyServer
               _ <- execRedis pool $ setAuthTokenRedis token email
 
               -- TODO SEND EMAIL
-              MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:3000/auth/" <> token)
+              MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
               exec $ Right emailSentTemplate
 
     handlePostLogin :: AuthPayload -> Handler H.Html
@@ -186,7 +187,7 @@ authServant pool = emptyServer
               _ <- execRedis pool $ setAuthTokenRedis token email
 
               -- TODO SEND EMAIL
-              MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:3000/auth/" <> token)
+              MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
               exec $ Right emailSentTemplate
 
     handleGetAuth :: Token -> Handler Authenticated
@@ -220,29 +221,29 @@ authServant pool = emptyServer
                   _ <- execRedis pool $ registerRedis (encodeTimestamp now) email (encodeText hash)
                   exec $ Right $ setClientHash authenticatedTemplate hash
 
-    handleDuplicateRegistration :: BS.ByteString -> Handler a
-    handleDuplicateRegistration email = do
-      MonadIO.liftIO $ putStrLn $ "Email already registered: " ++ show email
-      exec $ Left (err409 { errBody = R.renderHtml template})
-      where template = fastTemplate "email already registered" ("/login", "login")
+handleDuplicateRegistration :: BS.ByteString -> Handler a
+handleDuplicateRegistration email = do
+  MonadIO.liftIO $ putStrLn $ "Email already registered: " ++ show email
+  exec $ Left (err409 { errBody = R.renderHtml template})
+  where template = fastTemplate "email already registered" ("/login", "login")
 
-    handlePhantomLogin :: BS.ByteString -> Handler a
-    handlePhantomLogin email = do
-      MonadIO.liftIO $ putStrLn $ "User not found: " ++ show email
-      exec $ Left (err409 { errBody = R.renderHtml template})
-      where template = fastTemplate "user not found" ("/register", "register")
+handlePhantomLogin :: BS.ByteString -> Handler a
+handlePhantomLogin email = do
+  MonadIO.liftIO $ putStrLn $ "User not found: " ++ show email
+  exec $ Left (err409 { errBody = R.renderHtml template})
+  where template = fastTemplate "user not found" ("/register", "register")
 
-    handleTokenNotFound :: Handler a
-    handleTokenNotFound = do
-      MonadIO.liftIO $ putStrLn $ "Authentication link not found"
-      exec $ Left (err404 { errBody = R.renderHtml template})
-      where template = fastTemplate "invalid authentication" ("/login", "try again")
+handleTokenNotFound :: Handler a
+handleTokenNotFound = do
+  MonadIO.liftIO $ putStrLn $ "Authentication link not found"
+  exec $ Left (err404 { errBody = R.renderHtml template})
+  where template = fastTemplate "invalid authentication" ("/login", "try again")
 
-    handleValidationError :: Text.Text -> Handler a
-    handleValidationError err = do
-      MonadIO.liftIO $ putStrLn $ "Validation Error: " <> show err
-      exec $ Left (err401 { errBody = R.renderHtml template})
-      where template = fastTemplate "invalid token" ("/", "home")
+handleValidationError :: Text.Text -> Handler a
+handleValidationError err = do
+  MonadIO.liftIO $ putStrLn $ "Validation Error: " <> show err
+  exec $ Left (err401 { errBody = R.renderHtml template})
+  where template = fastTemplate "invalid token" ("/", "home")
 
 handleRedisError :: Redis.Reply -> Handler a
 handleRedisError err = do
