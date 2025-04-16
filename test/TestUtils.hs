@@ -21,7 +21,8 @@ defaultTestConfig = AppConfig
 
 evalAppTest :: App a -> Maybe AppConfig -> IO a
 evalAppTest action mConfig = do
-  (_, handle) <- mkIORefHandle
+  ref <- IORef.newIORef initialAppState
+  let handle = mkIORefHandle ref
   let config = Maybe.fromMaybe defaultTestConfig mConfig
       finalConfig = config { configStateHandle = handle }
   MonadReader.runReaderT action finalConfig
@@ -31,7 +32,8 @@ execAppTest action mConfig = evalAppTest action mConfig
 
 runAppAndGetRefState :: App a -> Maybe AppConfig -> IO (a, AppState)
 runAppAndGetRefState action mConfig = do
-  (ref, handle) <- mkIORefHandle
+  ref <- IORef.newIORef initialAppState
+  let handle = mkIORefHandle ref
   let config = Maybe.fromMaybe defaultTestConfig mConfig
       finalConfig = config { configStateHandle = handle }
   result <- MonadReader.runReaderT action finalConfig

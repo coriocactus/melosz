@@ -26,7 +26,7 @@ common common-options
     random,
     text
 
-common api-deps
+common app-deps
   build-depends:
     SHA,
     base64,
@@ -59,27 +59,27 @@ library
     Types AppState Glicko2
     Rating Scheduler Ranking
 
-executable api
-  import: common-options, common-warnings, api-deps
+executable app
+  import: common-options, common-warnings, app-deps
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
-  hs-source-dirs: api
+  hs-source-dirs: app
   main-is: Main.hs
   other-modules:
     Actions, Redis, Auth
 
-executable web
+executable demo-web
   import: common-options, common-warnings, web-deps
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
-  hs-source-dirs: app
+  hs-source-dirs: demo
   main-is: Web.hs
 
-executable console
+executable demo-console
   import: common-options, common-warnings
   ghc-options: -O2 -rtsopts -threaded -with-rtsopts=-N
   build-depends: melosz
-  hs-source-dirs: app
+  hs-source-dirs: demo
   main-is: Console.hs
 
 test-suite core

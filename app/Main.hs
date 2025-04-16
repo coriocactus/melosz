@@ -47,8 +47,8 @@ launch port = do
         , configStateHandle = redisHandle
         }
 
-  putStrLn $ "=== === === Running melosz backend (API - Redis) === === ==="
-  putStrLn $ "Listening: http://localhost:" ++ show port
+  putStrLn $ "=== === === running melosz backend === === ==="
+  putStrLn $ "listening: http://localhost:" ++ show port
 
   Warp.run port (application config pool)
 
