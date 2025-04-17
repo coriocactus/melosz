@@ -125,8 +125,8 @@ mkGuestBanner =
       H.a H.! A.href "/register" H.! A.class_ "ds-link ds-link-hover font-semibold" $ "Register"
 
 mkComparePage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
-mkComparePage userId isRegistered mPair currentRatings maybePrevRankMap =
-  pageLayout ("Comparison for " <> TextEnc.decodeUtf8 (unUserId userId)) $ do
+mkComparePage _userId isRegistered mPair currentRatings maybePrevRankMap =
+  pageLayout "a/b" $ do
 
     Monad.unless isRegistered mkGuestBanner
 

@@ -22,15 +22,14 @@ meloszTitle :: H.Html
 meloszTitle = H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ "melosz"
 
 pageLayout :: Text.Text -> H.Html -> H.Html
-pageLayout title bodyContent = H.docTypeHtml $ H.html $ do
+pageLayout title content = H.docTypeHtml $ H.html $ do
   pageHead title mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "container mx-auto p-4 sm:p-6 md:p-8" $ do
       H.div H.! A.class_ "flex justify-between items-center mb-6" $ do
         H.a H.! A.href "/" H.! A.class_ "md:text-3xl text-xl font-bold hover:text-primary" $ "melosz"
         H.div "" -- placeholder for right-aligned nav items
-      H.h1 H.! A.class_ "text-2xl font-bold mb-6" $ H.toHtml title
-      bodyContent
+      content
 
 loginTemplate :: Text.Text -> H.Html
 loginTemplate token = H.docTypeHtml $ H.html $ do
