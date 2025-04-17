@@ -1,7 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 
 module Auth where
 
@@ -51,7 +49,7 @@ mkCookie hash = Text.concat
 type AuthHeader = Text.Text
 type Protect = Header "cookie" AuthHeader
 
-initUser :: RedisPool -> Maybe AuthHeader -> Text.Text -> Handler UserId
+initUser :: RedisPool -> Maybe AuthHeader -> Text.Text -> Handler (UserId, Bool)
 initUser pool maybeAuth destination =
   case maybeAuth of
     Nothing -> handleMissingAuth pool destination
@@ -63,8 +61,8 @@ initUser pool maybeAuth destination =
           Nothing -> handleMissingAuth pool destination
           Just (isRegistered, userId) -> do
             case isRegistered of
-              True -> pure userId
-              False -> extendGuest pool userId hash >> pure userId
+              True -> pure (userId, True)
+              False -> extendGuest pool userId hash >> pure (userId, False)
 
 handleMissingAuth :: RedisPool -> Text.Text -> Handler a
 handleMissingAuth pool destination = do

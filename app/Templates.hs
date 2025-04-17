@@ -28,72 +28,6 @@ pageLayout title bodyContent = H.docTypeHtml $ do
     H.h1 $ H.toHtml title
     bodyContent
 
-data MessageTemplate = MessageTemplate
-  { messageTitle :: Text.Text
-  , messageHeading :: Text.Text
-  , messageLink :: (Text.Text, Text.Text)
-  }
-
-mkMessageTemplate :: MessageTemplate -> H.Html
-mkMessageTemplate template = H.docTypeHtml $ H.html $ do
-  pageHead (messageTitle template) mempty
-  H.body $ do
-    H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center" $ do
-      H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ meloszTitle
-      H.h1 H.! A.class_ "text-2xl font-bold mt-4 mb-4" $ H.toHtml $ messageHeading template
-      H.div H.! A.class_ "mb-32" $ do
-        H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href (H.textValue $ fst $ messageLink template) $
-          H.toHtml $ snd $ messageLink template
-
-fastTemplate :: Text.Text -> (Text.Text, Text.Text) -> H.Html
-fastTemplate message link = mkMessageTemplate MessageTemplate
-  { messageTitle = message
-  , messageHeading = message
-  , messageLink = link
-  }
-
-errorFormatter :: ErrorFormatter
-errorFormatter _typeRep _req errMsg = err400 
-  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
-  , errBody = R.renderHtml $ mkMessageTemplate template
-  }
-  where 
-    template = MessageTemplate
-      { messageTitle = "error"
-      , messageHeading = Text.pack errMsg
-      , messageLink = ("/", "home")
-      }
-
-notFoundFormatter :: NotFoundErrorFormatter
-notFoundFormatter _req = err404
-  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
-  , errBody = R.renderHtml $ mkMessageTemplate template
-  }
-  where 
-    template = MessageTemplate
-      { messageTitle = "error"
-      , messageHeading = "not found"
-      , messageLink = ("/", "home")
-      }
-
-emailSentTemplate :: H.Html
-emailSentTemplate = mkMessageTemplate template
-  where
-    template = MessageTemplate
-      { messageTitle = "check your email"
-      , messageHeading = "check your email"
-      , messageLink = ("/", "home")
-      }
-
-authenticatedTemplate :: H.Html
-authenticatedTemplate = mkMessageTemplate template
-  where
-    template = MessageTemplate
-      { messageTitle = "success"
-      , messageHeading = "authenticated"
-      , messageLink = ("/", "home")
-      }
-
 loginTemplate :: Text.Text -> H.Html
 loginTemplate token = H.docTypeHtml $ H.html $ do
   pageHead "login" mempty
@@ -119,3 +53,83 @@ registerTemplate token = H.docTypeHtml $ H.html $ do
           H.input H.! A.type_ "hidden" H.! A.name "token" H.! A.value (H.textValue token)
           H.button H.! A.type_ "submit" H.! A.class_ "w-full p-2 mt-4 font-inherit bg-primary text-primary-content rounded-lg cursor-pointer hover:bg-primary/90" $ "register"
       H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href "/login" $ "login"
+
+-- message views
+
+emailSentTemplate :: H.Html
+emailSentTemplate = mkMessageTemplate template
+  where
+    template = MessageTemplate
+      { messageTitle = "check your email"
+      , messageHeading = "check your email"
+      , messageLink = ("/", "home")
+      }
+
+authenticatedTemplate :: H.Html
+authenticatedTemplate = mkMessageTemplate template
+  where
+    template = MessageTemplate
+      { messageTitle = "success"
+      , messageHeading = "authenticated"
+      , messageLink = ("/", "home")
+      }
+
+-- message builder
+
+data MessageTemplate = MessageTemplate
+  { messageTitle :: Text.Text
+  , messageHeading :: Text.Text
+  , messageLink :: (Text.Text, Text.Text)
+  }
+
+mkMessageTemplate :: MessageTemplate -> H.Html
+mkMessageTemplate template = H.docTypeHtml $ H.html $ do
+  pageHead (messageTitle template) mempty
+  H.body $ do
+    H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center" $ do
+      H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ meloszTitle
+      H.h1 H.! A.class_ "text-2xl font-bold mt-4 mb-4" $ H.toHtml $ messageHeading template
+      H.div H.! A.class_ "mb-32" $ do
+        H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href (H.textValue $ fst $ messageLink template) $
+          H.toHtml $ snd $ messageLink template
+
+fastTemplate :: Text.Text -> (Text.Text, Text.Text) -> H.Html
+fastTemplate message link = mkMessageTemplate MessageTemplate
+  { messageTitle = message
+  , messageHeading = message
+  , messageLink = link
+  }
+
+-- servant error formatters
+
+errorFormatters :: ErrorFormatters
+errorFormatters = defaultErrorFormatters
+  { bodyParserErrorFormatter = errorFormatter
+  , urlParseErrorFormatter = errorFormatter
+  , headerParseErrorFormatter = errorFormatter
+  , notFoundErrorFormatter = notFoundFormatter
+  }
+
+errorFormatter :: ErrorFormatter
+errorFormatter _typeRep _req errMsg = err400 
+  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
+  , errBody = R.renderHtml $ mkMessageTemplate template
+  }
+  where 
+    template = MessageTemplate
+      { messageTitle = "error"
+      , messageHeading = Text.pack errMsg
+      , messageLink = ("/", "home")
+      }
+
+notFoundFormatter :: NotFoundErrorFormatter
+notFoundFormatter _req = err404
+  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
+  , errBody = R.renderHtml $ mkMessageTemplate template
+  }
+  where 
+    template = MessageTemplate
+      { messageTitle = "error"
+      , messageHeading = "not found"
+      , messageLink = ("/", "home")
+      }

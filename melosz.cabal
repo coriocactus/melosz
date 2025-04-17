@@ -62,7 +62,9 @@ executable app
   hs-source-dirs: app
   main-is: Main.hs
   other-modules:
-    Actions, Redis, Templates, Auth, Colour
+    Actions, Redis, Auth, 
+    Colour, Templates,
+    Compare
 
 executable demo-web
   import: common-options, common-warnings, web
