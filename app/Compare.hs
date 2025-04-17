@@ -5,6 +5,8 @@ module Compare where
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
+import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
@@ -22,6 +24,7 @@ import Types
 import AppState
 import Rating
 import Scheduler
+import Ranking
 
 import Redis
 import Actions
@@ -60,8 +63,8 @@ compareServant cfg pool auth = emptyServer
       -- MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by " ++ show uid
       pure NoContent
 
-    fetchAndBuildSession :: UserId -> Bool -> App (Either ServerError H.Html)
-    fetchAndBuildSession uid isRegistered = do
+    fetchAndBuildSession :: UserId -> Bool -> Maybe RankMap -> App (Either ServerError H.Html)
+    fetchAndBuildSession uid isRegistered maybePrevRankMap = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
       optionsList <- Set.toList <$> MonadReader.asks configOptions
       setupUser uid
@@ -69,31 +72,37 @@ compareServant cfg pool auth = emptyServer
       mPair <- getNextComparisonPair uid
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
-      pure $ Right $ mkComparePage uid isRegistered mPair currentRatings
+      pure $ Right $ mkComparePage uid isRegistered mPair currentRatings maybePrevRankMap
 
     handleGetCompareData :: Handler H.Html
     handleGetCompareData = do
       (uid, isRegistered) <- initUser pool auth "/compare"
       MonadIO.liftIO $ putStrLn $ "Serving /compare for " ++ show uid
-      execApp cfg $ fetchAndBuildSession uid isRegistered
+      execApp cfg $ fetchAndBuildSession uid isRegistered Nothing
 
     handlePostCompare :: ChooseFormData -> Handler H.Html
     handlePostCompare submission = do
       (uid, isRegistered) <- initUser pool auth "/"
-      MonadIO.liftIO $ putStrLn $ "Processing POST /compare" ++ show uid ++ " with data: " ++ show submission
+      MonadIO.liftIO $ putStrLn $ "Processing POST /compare for " ++ show uid ++ " with data: " ++ show submission
       let winnerId = OptionId (TextEnc.encodeUtf8 $ formWinnerId submission)
           loserId  = OptionId (TextEnc.encodeUtf8 $ formLoserId submission)
 
       execApp cfg $ do
+        optionsList <- Set.toList <$> MonadReader.asks configOptions
         mWinnerOpt <- getOptionById winnerId
         mLoserOpt  <- getOptionById loserId
 
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
+
+            prevRatingsList <- getUserRatings uid optionsList
+            let prevRankMap = ratingsToRankMap prevRatingsList
+
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show uid ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
             updateRatings uid winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show uid
-            fetchAndBuildSession uid isRegistered
+
+            fetchAndBuildSession uid isRegistered (Just prevRankMap)
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
             pure $ Left $ err400
@@ -115,8 +124,8 @@ mkGuestBanner =
       H.a H.! A.href "/login" H.! A.class_ "ds-link ds-link-hover font-semibold mr-4" $ "Login"
       H.a H.! A.href "/register" H.! A.class_ "ds-link ds-link-hover font-semibold" $ "Register"
 
-mkComparePage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> H.Html
-mkComparePage userId isRegistered mPair rankings =
+mkComparePage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
+mkComparePage userId isRegistered mPair currentRatings maybePrevRankMap =
   pageLayout ("Comparison for " <> TextEnc.decodeUtf8 (unUserId userId)) $ do
 
     Monad.unless isRegistered mkGuestBanner
@@ -127,7 +136,7 @@ mkComparePage userId isRegistered mPair rankings =
 
     H.div H.! A.class_ "mt-8 p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
       H.h2 H.! A.class_ "text-xl font-semibold mb-4" $ "Current Rankings"
-      mkRankingsTable rankings
+      mkRankingsTable currentRatings maybePrevRankMap
 
 mkComparisonSection :: Option -> Option -> H.Html
 mkComparisonSection opt1 opt2 = do
@@ -138,7 +147,6 @@ mkComparisonSection opt1 opt2 = do
   H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
     H.div H.! A.class_ "flex flex-col sm:flex-row items-center justify-around w-full gap-4" $ do
 
--- <div class="skeleton h-96 w-96"></div>
       H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
         H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
         H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
@@ -153,20 +161,37 @@ mkComparisonSection opt1 opt2 = do
         H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $
           H.toHtml (BSC.unpack $ optionName opt2)
 
-mkRankingsTable :: [(Option, Double)] -> H.Html
-mkRankingsTable sortedRatings = H.div H.! A.class_ "overflow-x-auto" $ H.table H.! A.class_ "ds-table w-full" $ do
+mkRankingsTable :: [(Option, Double)] -> Maybe RankMap -> H.Html
+mkRankingsTable currentRatings maybePrevRankMap = H.div H.! A.class_ "overflow-x-auto" $ H.table H.! A.class_ "ds-table w-full" $ do
   H.thead $ H.tr $ do
     H.th H.! A.class_ "text-left p-3" $ "Rank"
     H.th H.! A.class_ "text-left p-3" $ "Option"
     H.th H.! A.class_ "text-left p-3" $ "Rating"
   H.tbody $ do
-    mapM_ mkRankingRow (zip [1..] sortedRatings)
+    let currentWithRanks = ratingsToRankings currentRatings
+    mapM_ (mkRankingRow maybePrevRankMap) currentWithRanks
   where
-    mkRankingRow :: (Int, (Option, Double)) -> H.Html
-    mkRankingRow (rank, (opt, rating)) = H.tr H.! A.class_ "hover:bg-base-300" $ do
-      H.td H.! A.class_ "p-3" $ H.toHtml rank
+    mkRankingRow :: Maybe RankMap -> (Option, Int) -> H.Html
+    mkRankingRow mPrevRankMap (opt, currentRank) = H.tr H.! A.class_ "hover:bg-base-300" $ do
+
+      H.td H.! A.class_ "p-3 font-medium" $ do
+         H.toHtml currentRank
+         H.toHtml (formatRankChange mPrevRankMap opt currentRank)
       H.td H.! A.class_ "p-3" $ H.toHtml (BSC.unpack $ optionName opt)
-      H.td H.! A.class_ "p-3" $ H.toHtml (Printf.printf "%.1f" rating :: String)
+
+      let currentRating = Maybe.fromMaybe 0.0 (lookup opt currentRatings)
+      H.td H.! A.class_ "p-3" $ H.toHtml (Printf.printf "%.1f" currentRating :: String)
+
+    formatRankChange :: Maybe RankMap -> Option -> Int -> String
+    formatRankChange Nothing _ _ = ""
+    formatRankChange (Just prevRankMap) option currentRank =
+      let oid = optionId option
+          prevRank = Map.findWithDefault currentRank oid prevRankMap
+          rankChange = prevRank - currentRank
+      in case compare rankChange 0 of
+          EQ -> "" :: String
+          GT -> Printf.printf " (↑%d)" rankChange
+          LT -> Printf.printf " (↓%d)" (abs rankChange)
 
 -- utils
 
