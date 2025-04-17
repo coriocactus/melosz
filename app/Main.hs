@@ -17,6 +17,7 @@ import AppState
 import Redis
 import Auth
 import Templates
+import Home
 import Compare
 
 -- application
@@ -62,12 +63,13 @@ application cfg pool = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
   serveWithContext butler underButler (servants cfg pool)
 
 servants :: AppConfig -> RedisPool -> Server API
-servants cfg pool = staticServant
-  :<|> authServant pool
+servants cfg pool = staticServant :<|> authServant pool
   :<|> compareServant cfg pool
+  :<|> homeServant cfg pool
 
 type API = StaticAPI :<|> AuthAPI
   :<|> Protect :> CompareAPI
+  :<|> Protect :> HomeAPI
 
 butler :: Proxy API
 butler = Proxy
