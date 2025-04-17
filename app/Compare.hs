@@ -138,7 +138,8 @@ mkComparisonSection opt1 opt2 = do
   H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
     H.div H.! A.class_ "flex flex-col sm:flex-row items-center justify-around w-full gap-4" $ do
 
-      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
+-- <div class="skeleton h-96 w-96"></div>
+      H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
         H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
         H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
         H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $
@@ -146,7 +147,7 @@ mkComparisonSection opt1 opt2 = do
 
       H.span H.! A.class_ "font-bold text-lg my-2 sm:my-0" $ "VS"
 
-      H.form H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
+      H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
         H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
         H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
         H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $
