@@ -1,3 +1,12 @@
 @import 'tailwindcss';
 
 @config './tailwind.config.js';
+
+@plugin "daisyui" {
+  prefix: "ds-";
+  logs: false;
+}
+
+* {
+  scrollbar-gutter: stable both-edges;
+}

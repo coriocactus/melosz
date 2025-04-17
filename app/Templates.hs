@@ -19,14 +19,18 @@ pageHead title more = H.head $ do
   more
 
 meloszTitle :: H.Html
-meloszTitle = H.div "melosz"
+meloszTitle = H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ "melosz"
 
 pageLayout :: Text.Text -> H.Html -> H.Html
-pageLayout title bodyContent = H.docTypeHtml $ do
+pageLayout title bodyContent = H.docTypeHtml $ H.html $ do
   pageHead title mempty
-  H.body $ H.div H.! A.class_ "container" $ do
-    H.h1 $ H.toHtml title
-    bodyContent
+  H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
+    H.div H.! A.class_ "container mx-auto p-4 sm:p-6 md:p-8" $ do
+      H.div H.! A.class_ "flex justify-between items-center mb-6" $ do
+        H.a H.! A.href "/" H.! A.class_ "md:text-3xl text-xl font-bold hover:text-primary" $ "melosz"
+        H.div "" -- placeholder for right-aligned nav items
+      H.h1 H.! A.class_ "text-2xl font-bold mb-6" $ H.toHtml title
+      bodyContent
 
 loginTemplate :: Text.Text -> H.Html
 loginTemplate token = H.docTypeHtml $ H.html $ do
@@ -34,11 +38,12 @@ loginTemplate token = H.docTypeHtml $ H.html $ do
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
       H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
-      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8" $ do
+      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
+        H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Login"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/login" $ do
-          H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "p-2 font-inherit text-inherit rounded-lg border border-base-300" H.! A.required "required"
+          H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered w-full mb-4" H.! A.required "required"
           H.input H.! A.type_ "hidden" H.! A.name "token" H.! A.value (H.textValue token)
-          H.button H.! A.type_ "submit" H.! A.class_ "w-full p-2 mt-4 font-inherit bg-primary text-primary-content rounded-lg cursor-pointer hover:bg-primary/90" $ "login"
+          H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $ "login"
       H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href "/register" $ "register"
 
 registerTemplate :: Text.Text -> H.Html
@@ -47,11 +52,12 @@ registerTemplate token = H.docTypeHtml $ H.html $ do
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
       H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
-      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8" $ do
+      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
+        H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Register"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/register" $ do
-          H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "p-2 font-inherit text-inherit rounded-lg border border-base-300" H.! A.required "required"
+          H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered w-full mb-4" H.! A.required "required"
           H.input H.! A.type_ "hidden" H.! A.name "token" H.! A.value (H.textValue token)
-          H.button H.! A.type_ "submit" H.! A.class_ "w-full p-2 mt-4 font-inherit bg-primary text-primary-content rounded-lg cursor-pointer hover:bg-primary/90" $ "register"
+          H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $ "register"
       H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href "/login" $ "login"
 
 -- message views
@@ -85,12 +91,12 @@ data MessageTemplate = MessageTemplate
 mkMessageTemplate :: MessageTemplate -> H.Html
 mkMessageTemplate template = H.docTypeHtml $ H.html $ do
   pageHead (messageTitle template) mempty
-  H.body $ do
-    H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center" $ do
-      H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ meloszTitle
-      H.h1 H.! A.class_ "text-2xl font-bold mt-4 mb-4" $ H.toHtml $ messageHeading template
-      H.div H.! A.class_ "mb-32" $ do
-        H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href (H.textValue $ fst $ messageLink template) $
+  H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
+    H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
+      H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
+      H.div H.! A.class_ "max-w-md w-full text-center p-6 bg-base-200 rounded-lg shadow-lg" $ do
+        H.h1 H.! A.class_ "text-2xl font-bold mb-4" $ H.toHtml $ messageHeading template
+        H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover text-lg" H.! A.href (H.textValue $ fst $ messageLink template) $
           H.toHtml $ snd $ messageLink template
 
 fastTemplate :: Text.Text -> (Text.Text, Text.Text) -> H.Html
@@ -111,11 +117,11 @@ errorFormatters = defaultErrorFormatters
   }
 
 errorFormatter :: ErrorFormatter
-errorFormatter _typeRep _req errMsg = err400 
-  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
+errorFormatter _typeRep _req errMsg = err400
+  { errHeaders = [("Content-Type", "text/html; charset=utf-8")]
   , errBody = R.renderHtml $ mkMessageTemplate template
   }
-  where 
+  where
     template = MessageTemplate
       { messageTitle = "error"
       , messageHeading = Text.pack errMsg
@@ -124,10 +130,10 @@ errorFormatter _typeRep _req errMsg = err400
 
 notFoundFormatter :: NotFoundErrorFormatter
 notFoundFormatter _req = err404
-  { errHeaders = [("Content-Type", "text/html; charset=utf-8")] 
+  { errHeaders = [("Content-Type", "text/html; charset=utf-8")]
   , errBody = R.renderHtml $ mkMessageTemplate template
   }
-  where 
+  where
     template = MessageTemplate
       { messageTitle = "error"
       , messageHeading = "not found"
