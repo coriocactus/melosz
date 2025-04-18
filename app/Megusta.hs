@@ -2,6 +2,7 @@
 
 module Megusta where
 
+import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Map.Strict as Map
@@ -119,7 +120,8 @@ megustaServant cfg pool auth = emptyServer
 mkMegustaPage :: UserId -> Bool -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
 mkMegustaPage _userId isRegistered swap mPair currentRatings maybePrevRankMap =
   pageLayout (if isRegistered then User else Guest) "megusta" $ do
-
+    Monad.unless isRegistered $
+      H.div H.! A.class_ "text-center ds-alert ds-alert-warning mb-2" $ "guest access: rankings will be temporary"
     case mPair of
       Just (opt1, opt2) -> do
         let (dispOpt1, dispOpt2) = if swap then (opt2, opt1) else (opt1, opt2)

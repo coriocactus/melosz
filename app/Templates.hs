@@ -32,7 +32,7 @@ pageLayout acl title content = H.docTypeHtml $ H.html $ do
         meloszTitle
         case acl of 
           User -> H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty
-          Guest -> H.a H.! A.class_ "ds-btn ds-btn-primary" H.! A.href "/login" $ "upgrade access"
+          Guest -> H.a H.! A.class_ "ds-btn ds-btn-primary ds-btn-xs sm:ds-btn-sm md:ds-btn-md" H.! A.href "/login" $ "upgrade access"
       content
 
 mkLoginPage :: Text.Text -> H.Html
