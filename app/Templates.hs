@@ -35,6 +35,23 @@ pageLayout acl title content = H.docTypeHtml $ H.html $ do
           Guest -> H.a H.! A.class_ "ds-btn ds-btn-primary ds-btn-xs sm:ds-btn-sm md:ds-btn-md" H.! A.href "/login" $ "upgrade access"
       content
 
+-- pageLayout :: AccessRight -> Text.Text -> H.Html -> H.Html
+-- pageLayout acl title content = H.docTypeHtml $ H.html H.! A.class_ "h-full" $ do -- Ensure html takes full height
+--   pageHead title mempty
+--   -- Make body a flex container to allow content to grow
+--   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content flex flex-col" $ do
+--     H.div H.! A.class_ "container mx-auto p-4 sm:p-6 md:p-8" $ do -- Header container
+--       H.div H.! A.class_ "flex justify-between items-center h-8 md:h-12 mb-6" $ do
+--         meloszTitle
+--         case acl of
+--           User -> H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty
+--           Guest -> H.a H.! A.class_ "ds-btn ds-btn-primary ds-btn-xs sm:ds-btn-sm md:ds-btn-md" H.! A.href "/login" $ "upgrade access"
+--     -- Main content area that can grow
+--     H.div H.! A.class_ "container mx-auto px-4 sm:px-6 md:px-8 flex-grow" $ do -- flex-grow added
+--       content
+--     -- Footer placeholder (optional)
+--     -- H.footer H.! A.class_ "container mx-auto p-4 text-center text-sm text-base-content/50" $ "footer"
+
 mkLoginPage :: Text.Text -> H.Html
 mkLoginPage token = H.docTypeHtml $ H.html $ do
   pageHead "login" mempty

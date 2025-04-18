@@ -5,7 +5,6 @@ module Megusta where
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
-import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -25,7 +24,6 @@ import Types
 import AppState
 import Rating
 import Scheduler
-import Ranking
 
 import Redis
 import Actions
@@ -44,17 +42,20 @@ instance Form.FromForm ChooseFormData where
 
 type MegustaTestAPI = "megusta" :> "test" :> Get '[JSON] NoContent
 type MegustaGetAPI = "megusta" :> Get '[ServantBlaze.HTML] H.Html
+type MegustaGetAggAPI = "megusta" :> "agg" :> Get '[ServantBlaze.HTML] H.Html
 type MegustaPostAPI = "megusta" :> ReqBody '[FormUrlEncoded] ChooseFormData :> Post '[ServantBlaze.HTML] H.Html
 
 type MegustaAPI = EmptyAPI
   :<|> MegustaTestAPI
   :<|> MegustaGetAPI
+  :<|> MegustaGetAggAPI
   :<|> MegustaPostAPI
 
 megustaServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server MegustaAPI
 megustaServant cfg pool auth = emptyServer
   :<|> handleTestMegusta
-  :<|> handleGetMegustaData
+  :<|> handleGetMegusta
+  :<|> handleGetMegustaAgg
   :<|> handlePostMegusta
   where
     handleTestMegusta :: Handler NoContent
@@ -64,8 +65,8 @@ megustaServant cfg pool auth = emptyServer
       -- MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by " ++ show uid
       pure NoContent
 
-    fetchAndBuildSession :: UserId -> Bool -> Maybe RankMap -> App (Either ServerError H.Html)
-    fetchAndBuildSession uid isRegistered maybePrevRankMap = do
+    fetchAndBuildSession :: UserId -> Bool -> App (Either ServerError H.Html)
+    fetchAndBuildSession uid isRegistered = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
       optionsList <- Set.toList <$> MonadReader.asks configOptions
       setupUser uid
@@ -74,36 +75,45 @@ megustaServant cfg pool auth = emptyServer
       currentRatings <- getUserRatings uid optionsList
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
-      pure $ Right $ mkMegustaPage uid isRegistered swap mPair currentRatings maybePrevRankMap
+      pure $ Right $ mkMegustaPage uid isRegistered swap mPair currentRatings
 
-    handleGetMegustaData :: Handler H.Html
-    handleGetMegustaData = do
+    handleGetMegusta :: Handler H.Html
+    handleGetMegusta = do
       (uid, isRegistered) <- initUser pool auth "/megusta"
       MonadIO.liftIO $ putStrLn $ "Serving /megusta for " ++ show uid
-      execApp cfg $ fetchAndBuildSession uid isRegistered Nothing
+      execApp cfg $ fetchAndBuildSession uid isRegistered
+
+    fetchAndBuildAggSession :: UserId -> Bool -> App (Either ServerError H.Html)
+    fetchAndBuildAggSession uid isRegistered = do
+      MonadIO.liftIO $ putStrLn $ "Fetching aggregate rankings for user: " ++ show uid
+      optionsList <- Set.toList <$> MonadReader.asks configOptions
+      setupUser uid
+      currentRatings <- getUserRatings uid optionsList
+      pure $ Right $ mkMegustaAggPage uid isRegistered currentRatings
+
+    handleGetMegustaAgg :: Handler H.Html
+    handleGetMegustaAgg = do
+        (uid, isRegistered) <- initUser pool auth "/megusta/agg"
+        MonadIO.liftIO $ putStrLn $ "Serving /megusta/agg for " ++ show uid
+        execApp cfg $ fetchAndBuildAggSession uid isRegistered
 
     handlePostMegusta :: ChooseFormData -> Handler H.Html
     handlePostMegusta submission = do
-      (uid, isRegistered) <- initUser pool auth "/"
+      (uid, isRegistered) <- initUser pool auth "/megusta"
       MonadIO.liftIO $ putStrLn $ "Processing POST /megusta for " ++ show uid ++ " with data: " ++ show submission
       let winnerId = OptionId (TextEnc.encodeUtf8 $ formWinnerId submission)
           loserId  = OptionId (TextEnc.encodeUtf8 $ formLoserId submission)
 
       execApp cfg $ do
-        optionsList <- Set.toList <$> MonadReader.asks configOptions
         mWinnerOpt <- getOptionById winnerId
         mLoserOpt  <- getOptionById loserId
 
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
-            prevRatingsList <- getUserRatings uid optionsList
-            let prevRankMap = ratingsToRankMap prevRatingsList
-
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show uid ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
             updateRatings uid winnerOpt loserOpt Win
             MonadIO.liftIO $ putStrLn $ "State updated for " ++ show uid
-
-            fetchAndBuildSession uid isRegistered (Just prevRankMap)
+            fetchAndBuildSession uid isRegistered
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
             pure $ Left $ err400
@@ -117,73 +127,76 @@ megustaServant cfg pool auth = emptyServer
                   , messageLink = ("/megusta", "try again")
                   }
 
-mkMegustaPage :: UserId -> Bool -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
-mkMegustaPage _userId isRegistered swap mPair currentRatings maybePrevRankMap =
+mkMegustaPage :: UserId -> Bool -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> H.Html
+mkMegustaPage _userId isRegistered swap mPair currentRatings =
   pageLayout (if isRegistered then User else Guest) "megusta" $ do
     Monad.unless isRegistered $
-      H.div H.! A.class_ "text-center ds-alert ds-alert-warning mb-2" $ "guest access: rankings will be temporary"
-    case mPair of
-      Just (opt1, opt2) -> do
-        let (dispOpt1, dispOpt2) = if swap then (opt2, opt1) else (opt1, opt2)
-        mkComparisonSection dispOpt1 dispOpt2
-      Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "No more pairs to megusta based on current strategy."
+      H.div H.! A.class_ "text-center ds-alert ds-alert-warning mb-4" $ "guest access: rankings will be temporary"
 
+    H.div H.! A.class_ "flex items-center justify-center" $ do
+      case mPair of
+        Just (opt1, opt2) -> do
+          let (dispOpt1, dispOpt2) = if swap then (opt2, opt1) else (opt1, opt2)
+          mkComparisonSection dispOpt1 dispOpt2 currentRatings
+        Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "no more pairs to megusta based on current strategy"
+
+    H.a H.! A.href "/megusta/agg" H.! A.class_ "ds-link ds-link-primary ds-link-hover block text-center mt-4" $ "view rankings"
+
+mkComparisonSection :: Option -> Option -> [(Option, Double)] -> H.Html
+mkComparisonSection opt1 opt2 currentRatings = do
+  H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow inline-block" $ do
+    H.div H.! A.class_ "flex flex-col lg:flex-row items-center justify-around gap-4 sm:gap-8 md:gap-12 lg:gap-16" $ do
+      buttonHtml opt1 oid1Text oid2Text
+      H.span H.! A.class_ "font-bold text-lg my-4 sm:my-0" $ "VS"
+      buttonHtml opt2 oid2Text oid1Text
+  where
+    oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
+    oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
+    postUrl = H.textValue $ Text.pack $ "/megusta"
+    rankedRatings = ratingsToRankings currentRatings
+
+    findRank :: Option -> String
+    findRank opt =
+      case lookup opt rankedRatings of
+        Just rank -> Printf.printf "#%d" rank
+        Nothing   -> ""
+
+    buttonHtml :: Option -> Text.Text -> Text.Text -> H.Html
+    buttonHtml opt winnerId loserId =
+      H.div H.! A.class_ "ds-indicator" $ do
+        H.span H.! A.class_ "ds-indicator-item ds-indicator-top ds-indicator-center ds-badge ds-badge-primary" $ H.toHtml (findRank opt)
+        H.form H.! A.class_ "ds-skeleton flex flex-col items-center justify-end p-4 w-[80dvw] lg:w-[40dvw] aspect-square relative transition-none" H.! A.method "post" H.! A.action postUrl $ do
+          H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue winnerId)
+          H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue loserId)
+          H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full absolute bottom-0" $ do
+            H.toHtml (BSC.unpack $ optionName opt)
+
+mkMegustaAggPage :: UserId -> Bool -> [(Option, Double)] -> H.Html
+mkMegustaAggPage _userId isRegistered currentRatings =
+  pageLayout (if isRegistered then User else Guest) "megusta rankings" $ do
+    Monad.unless isRegistered $
+      H.div H.! A.class_ "text-center ds-alert ds-alert-warning mb-2" $ "guest access: rankings will be temporary"
     H.div H.! A.class_ "mt-8 p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
       H.h2 H.! A.class_ "text-xl font-semibold mb-4" $ "Current Rankings"
-      mkRankingsTable currentRatings maybePrevRankMap
+      mkRankingsTableAgg currentRatings
+    H.a H.! A.href "/megusta" H.! A.class_ "ds-link ds-link-primary ds-link-hover block text-center mt-4" $ "back"
 
-mkComparisonSection :: Option -> Option -> H.Html
-mkComparisonSection opt1 opt2 = do
-  let oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
-      oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
-      postUrl = H.textValue $ Text.pack $ "/megusta"
-
-  H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
-    H.div H.! A.class_ "flex flex-col sm:flex-row items-center justify-around w-full gap-4" $ do
-      H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
-        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
-        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
-        H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $
-          H.toHtml (BSC.unpack $ optionName opt1)
-
-      H.span H.! A.class_ "font-bold text-lg my-2 sm:my-0" $ "VS"
-
-      H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
-        H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid2Text)
-        H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid1Text)
-        H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $
-          H.toHtml (BSC.unpack $ optionName opt2)
-
-mkRankingsTable :: [(Option, Double)] -> Maybe RankMap -> H.Html
-mkRankingsTable currentRatings maybePrevRankMap = H.div H.! A.class_ "overflow-x-auto" $ H.table H.! A.class_ "ds-table w-full" $ do
+mkRankingsTableAgg :: [(Option, Double)] -> H.Html
+mkRankingsTableAgg currentRatings = H.div H.! A.class_ "overflow-x-auto" $ H.table H.! A.class_ "ds-table w-full" $ do
   H.thead $ H.tr $ do
     H.th H.! A.class_ "text-left p-3" $ "Rank"
     H.th H.! A.class_ "text-left p-3" $ "Option"
     H.th H.! A.class_ "text-left p-3" $ "Rating"
   H.tbody $ do
     let currentWithRanks = ratingsToRankings currentRatings
-    mapM_ (mkRankingRow maybePrevRankMap) currentWithRanks
+    mapM_ mkRankingRowAgg currentWithRanks
   where
-    mkRankingRow :: Maybe RankMap -> (Option, Int) -> H.Html
-    mkRankingRow mPrevRankMap (opt, currentRank) = H.tr H.! A.class_ "hover:bg-base-300" $ do
-      H.td H.! A.class_ "p-3 font-medium" $ do
-         H.toHtml currentRank
-         H.toHtml (formatRankChange mPrevRankMap opt currentRank)
+    mkRankingRowAgg :: (Option, Int) -> H.Html
+    mkRankingRowAgg (opt, currentRank) = H.tr H.! A.class_ "hover:bg-base-300" $ do
+      H.td H.! A.class_ "p-3 font-medium" $ H.toHtml currentRank
       H.td H.! A.class_ "p-3" $ H.toHtml (BSC.unpack $ optionName opt)
-
       let currentRating = Maybe.fromMaybe 0.0 (lookup opt currentRatings)
       H.td H.! A.class_ "p-3" $ H.toHtml (Printf.printf "%.1f" currentRating :: String)
-
-    formatRankChange :: Maybe RankMap -> Option -> Int -> String
-    formatRankChange Nothing _ _ = ""
-    formatRankChange (Just prevRankMap) option currentRank =
-      let oid = optionId option
-          prevRank = Map.findWithDefault currentRank oid prevRankMap
-          rankChange = prevRank - currentRank
-      in case compare rankChange 0 of
-          EQ -> "" :: String
-          GT -> Printf.printf " (↑%d)" rankChange
-          LT -> Printf.printf " (↓%d)" (abs rankChange)
 
 -- utils
 
