@@ -116,14 +116,6 @@ compareServant cfg pool auth = emptyServer
                   , messageLink = ("/compare", "try again")
                   }
 
-mkGuestBanner :: H.Html
-mkGuestBanner =
-  H.div H.! A.class_ "p-4 mb-6 bg-warning text-warning-content rounded-lg shadow flex items-center justify-between" $ do
-    H.span "Guest Access: Rankings will be temporary."
-    H.div $ do
-      H.a H.! A.href "/login" H.! A.class_ "ds-link ds-link-hover font-semibold mr-4" $ "Login"
-      H.a H.! A.href "/register" H.! A.class_ "ds-link ds-link-hover font-semibold" $ "Register"
-
 mkComparePage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
 mkComparePage _userId isRegistered mPair currentRatings maybePrevRankMap =
   pageLayout "a/b" $ do

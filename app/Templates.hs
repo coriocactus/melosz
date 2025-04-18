@@ -31,8 +31,16 @@ pageLayout title content = H.docTypeHtml $ H.html $ do
         H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty
       content
 
-loginTemplate :: Text.Text -> H.Html
-loginTemplate token = H.docTypeHtml $ H.html $ do
+mkGuestBanner :: H.Html
+mkGuestBanner =
+  H.div H.! A.class_ "p-4 mb-6 bg-warning text-warning-content rounded-lg shadow flex items-center justify-between" $ do
+    H.span "Guest Access"
+    H.div $ do
+      H.a H.! A.href "/login" H.! A.class_ "ds-link ds-link-hover font-semibold mr-4" $ "Login"
+      H.a H.! A.href "/register" H.! A.class_ "ds-link ds-link-hover font-semibold" $ "Register"
+
+mkLoginPage :: Text.Text -> H.Html
+mkLoginPage token = H.docTypeHtml $ H.html $ do
   pageHead "login" mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
@@ -45,8 +53,8 @@ loginTemplate token = H.docTypeHtml $ H.html $ do
           H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full" $ "login"
       H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover" H.! A.href "/register" $ "register"
 
-registerTemplate :: Text.Text -> H.Html
-registerTemplate token = H.docTypeHtml $ H.html $ do
+mkRegistrationPage :: Text.Text -> H.Html
+mkRegistrationPage token = H.docTypeHtml $ H.html $ do
   pageHead "register" mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
@@ -61,8 +69,8 @@ registerTemplate token = H.docTypeHtml $ H.html $ do
 
 -- message views
 
-emailSentTemplate :: H.Html
-emailSentTemplate = mkMessageTemplate template
+emailSentMessage :: H.Html
+emailSentMessage = mkMessageTemplate template
   where
     template = MessageTemplate
       { messageTitle = "check your email"
@@ -70,8 +78,8 @@ emailSentTemplate = mkMessageTemplate template
       , messageLink = ("/", "home")
       }
 
-authenticatedTemplate :: H.Html
-authenticatedTemplate = mkMessageTemplate template
+authenticatedMessage :: H.Html
+authenticatedMessage = mkMessageTemplate template
   where
     template = MessageTemplate
       { messageTitle = "success"
@@ -98,8 +106,8 @@ mkMessageTemplate template = H.docTypeHtml $ H.html $ do
         H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover text-lg" H.! A.href (H.textValue $ fst $ messageLink template) $
           H.toHtml $ snd $ messageLink template
 
-fastTemplate :: Text.Text -> (Text.Text, Text.Text) -> H.Html
-fastTemplate message link = mkMessageTemplate MessageTemplate
+fastMessage :: Text.Text -> (Text.Text, Text.Text) -> H.Html
+fastMessage message link = mkMessageTemplate MessageTemplate
   { messageTitle = message
   , messageHeading = message
   , messageLink = link

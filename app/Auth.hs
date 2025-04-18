@@ -136,13 +136,13 @@ authServant pool = emptyServer
     handleGetRegister = do
       now <- MonadIO.liftIO POSIXTime.getPOSIXTime
       let token = generateToken now ["987", "654", "321"]
-      exec $ Right $ registerTemplate token
+      exec $ Right $ mkRegistrationPage token
 
     handleGetLogin :: Handler H.Html
     handleGetLogin = do
       now <- MonadIO.liftIO POSIXTime.getPOSIXTime
       let token = generateToken now ["123", "456", "789"]
-      exec $ Right $ loginTemplate token
+      exec $ Right $ mkLoginPage token
 
     handlePostRegister :: AuthPayload -> Handler H.Html
     handlePostRegister payload = do
@@ -164,7 +164,7 @@ authServant pool = emptyServer
 
               -- TODO SEND EMAIL
               MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
-              exec $ Right emailSentTemplate
+              exec $ Right emailSentMessage
 
     handlePostLogin :: AuthPayload -> Handler H.Html
     handlePostLogin payload = do
@@ -186,7 +186,7 @@ authServant pool = emptyServer
 
               -- TODO SEND EMAIL
               MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
-              exec $ Right emailSentTemplate
+              exec $ Right emailSentMessage
 
     handleGetAuth :: Token -> Handler Authenticated
     handleGetAuth token = do
@@ -212,42 +212,42 @@ authServant pool = emptyServer
                 Right True -> do
                   MonadIO.liftIO $ putStrLn $ "Login: " ++ show email
                   _ <- execRedis pool $ loginRedis (encodeTimestamp now) email (encodeText hash)
-                  exec $ Right $ setClientHash authenticatedTemplate hash
+                  exec $ Right $ setClientHash authenticatedMessage hash
 
                 Right False -> do
                   MonadIO.liftIO $ putStrLn $ "Registration: " ++ show email
                   _ <- execRedis pool $ registerRedis (encodeTimestamp now) email (encodeText hash)
-                  exec $ Right $ setClientHash authenticatedTemplate hash
+                  exec $ Right $ setClientHash authenticatedMessage hash
 
 handleDuplicateRegistration :: BS.ByteString -> Handler a
 handleDuplicateRegistration email = do
   MonadIO.liftIO $ putStrLn $ "Email already registered: " ++ show email
   exec $ Left (err409 { errBody = R.renderHtml template})
-  where template = fastTemplate "email already registered" ("/login", "login")
+  where template = fastMessage "email already registered" ("/login", "login")
 
 handlePhantomLogin :: BS.ByteString -> Handler a
 handlePhantomLogin email = do
   MonadIO.liftIO $ putStrLn $ "User not found: " ++ show email
   exec $ Left (err409 { errBody = R.renderHtml template})
-  where template = fastTemplate "user not found" ("/register", "register")
+  where template = fastMessage "user not found" ("/register", "register")
 
 handleTokenNotFound :: Handler a
 handleTokenNotFound = do
   MonadIO.liftIO $ putStrLn $ "Authentication link not found"
   exec $ Left (err404 { errBody = R.renderHtml template})
-  where template = fastTemplate "invalid authentication" ("/login", "try again")
+  where template = fastMessage "invalid authentication" ("/login", "try again")
 
 handleValidationError :: Text.Text -> Handler a
 handleValidationError err = do
   MonadIO.liftIO $ putStrLn $ "Validation Error: " <> show err
   exec $ Left (err401 { errBody = R.renderHtml template})
-  where template = fastTemplate "invalid token" ("/", "home")
+  where template = fastMessage "invalid token" ("/", "home")
 
 handleRedisError :: Redis.Reply -> Handler a
 handleRedisError err = do
   MonadIO.liftIO $ putStrLn $ "Redis Error: " <> show err
   exec $ Left (err500 { errBody = R.renderHtml template})
-  where template = fastTemplate "internal server error" ("/", "home")
+  where template = fastMessage "internal server error" ("/", "home")
 
 encodeBase64BS :: BS.ByteString -> Text.Text
 encodeBase64BS bs = Base64.extractBase64 $ Base64BS.encodeBase64 bs
