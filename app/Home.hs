@@ -44,7 +44,7 @@ mkHomePage :: UserId -> Bool -> H.Html
 mkHomePage _uid _isRegistered =
   pageLayout "melosz" $ do
     H.div H.! A.class_ "grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16" $ do
-      H.a H.! A.href "/compare" $ H.div H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "a/b"
-      H.a H.! A.href "#" $ H.div H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "democracy"
-      H.a H.! A.href "#" $ H.div H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "singles"
-      H.a H.! A.href "#" $ H.div H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "doubles"
+      H.a H.! A.href "/compare" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "a/b"
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "democracy"
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "singles"
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "doubles"

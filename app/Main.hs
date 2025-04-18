@@ -64,12 +64,12 @@ application cfg pool = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
 
 servants :: AppConfig -> RedisPool -> Server API
 servants cfg pool = staticServant :<|> authServant pool
-  :<|> compareServant cfg pool
   :<|> homeServant cfg pool
+  :<|> compareServant cfg pool
 
 type API = StaticAPI :<|> AuthAPI
-  :<|> Protect :> CompareAPI
   :<|> Protect :> HomeAPI
+  :<|> Protect :> CompareAPI
 
 butler :: Proxy API
 butler = Proxy
