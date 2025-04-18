@@ -64,7 +64,7 @@ executable app
   other-modules:
     Actions, Redis, Auth, 
     Colour, Templates,
-    Compare
+    Home, Compare
 
 executable demo-web
   import: common-options, common-warnings, web
