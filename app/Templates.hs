@@ -19,7 +19,7 @@ pageHead title more = H.head $ do
   more
 
 meloszTitle :: H.Html
-meloszTitle = H.div H.! A.class_ "md:text-3xl text-xl" $ H.a H.! A.href "/" $ "melosz"
+meloszTitle = H.a H.! A.href "/" H.! A.class_ "md:text-3xl text-xl font-bold hover:text-primary" $ "melosz"
 
 data AccessRight = Guest | User deriving (Eq, Show)
 
@@ -29,27 +29,19 @@ pageLayout acl title content = H.docTypeHtml $ H.html $ do
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "container mx-auto p-4 sm:p-6 md:p-8" $ do
       H.div H.! A.class_ "flex justify-between items-center h-8 md:h-12 mb-6" $ do
-        H.a H.! A.href "/" H.! A.class_ "md:text-3xl text-xl font-bold hover:text-primary" $ "melosz"
+        meloszTitle
         case acl of 
           User -> H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty
-          Guest -> H.div H.! A.class_ "ds-badge ds-badge-accent" $ "Guest Access"
+          Guest -> H.a H.! A.class_ "ds-btn ds-btn-accent" H.! A.href "/login" $ "upgrade access"
       content
-
-mkGuestBanner :: H.Html
-mkGuestBanner =
-  H.div H.! A.class_ "p-4 mb-6 bg-warning text-warning-content rounded-lg shadow flex items-center justify-between" $ do
-    H.span "Guest Access"
-    H.div $ do
-      H.a H.! A.href "/login" H.! A.class_ "ds-link ds-link-hover font-semibold mr-4" $ "Login"
-      H.a H.! A.href "/register" H.! A.class_ "ds-link ds-link-hover font-semibold" $ "Register"
 
 mkLoginPage :: Text.Text -> H.Html
 mkLoginPage token = H.docTypeHtml $ H.html $ do
   pageHead "login" mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
-      H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
-      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
+      meloszTitle
+      H.div H.! A.class_ "w-full max-w-sm mx-auto m-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
         H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Login"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/login" $ do
           H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered ds-validator w-full mb-4" H.! A.required "required"
@@ -62,8 +54,8 @@ mkRegistrationPage token = H.docTypeHtml $ H.html $ do
   pageHead "register" mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
-      H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
-      H.div H.! A.class_ "w-full max-w-sm mx-auto mb-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
+      meloszTitle
+      H.div H.! A.class_ "w-full max-w-sm mx-auto m-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
         H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Register"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/register" $ do
           H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered ds-validator w-full mb-4" H.! A.required "required"
@@ -104,7 +96,7 @@ mkMessageTemplate template = H.docTypeHtml $ H.html $ do
   pageHead (messageTitle template) mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
-      H.div H.! A.class_ "md:text-3xl text-xl mb-8" $ H.a H.! A.href "/" $ meloszTitle
+      meloszTitle
       H.div H.! A.class_ "max-w-md w-full text-center p-6 bg-base-200 rounded-lg shadow-lg" $ do
         H.h1 H.! A.class_ "text-2xl font-bold mb-4" $ H.toHtml $ messageHeading template
         H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover text-lg" H.! A.href (H.textValue $ fst $ messageLink template) $

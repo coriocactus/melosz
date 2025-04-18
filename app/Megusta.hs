@@ -120,8 +120,6 @@ mkMegustaPage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] 
 mkMegustaPage _userId isRegistered mPair currentRatings maybePrevRankMap =
   pageLayout (if isRegistered then User else Guest) "megusta" $ do
 
-    Monad.unless isRegistered mkGuestBanner
-
     case mPair of
       Just (opt1, opt2) -> mkComparisonSection opt1 opt2
       Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "No more pairs to megusta based on current strategy."
