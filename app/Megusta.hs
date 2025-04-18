@@ -2,7 +2,6 @@
 
 module Megusta where
 
-import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
 import qualified Data.Map.Strict as Map
@@ -17,6 +16,7 @@ import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Text.Printf as Printf
 import qualified Web.FormUrlEncoded as Form
+import qualified System.Random as Random
 
 import Servant
 
@@ -68,11 +68,12 @@ megustaServant cfg pool auth = emptyServer
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
       optionsList <- Set.toList <$> MonadReader.asks configOptions
       setupUser uid
-      currentRatings <- getUserRatings uid optionsList
+      swap <- MonadIO.liftIO Random.randomIO
       mPair <- getNextComparisonPair uid
+      currentRatings <- getUserRatings uid optionsList
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
-      pure $ Right $ mkMegustaPage uid isRegistered mPair currentRatings maybePrevRankMap
+      pure $ Right $ mkMegustaPage uid isRegistered swap mPair currentRatings maybePrevRankMap
 
     handleGetMegustaData :: Handler H.Html
     handleGetMegustaData = do
@@ -94,7 +95,6 @@ megustaServant cfg pool auth = emptyServer
 
         case (mWinnerOpt, mLoserOpt) of
           (Just winnerOpt, Just loserOpt) -> do
-
             prevRatingsList <- getUserRatings uid optionsList
             let prevRankMap = ratingsToRankMap prevRatingsList
 
@@ -116,12 +116,14 @@ megustaServant cfg pool auth = emptyServer
                   , messageLink = ("/megusta", "try again")
                   }
 
-mkMegustaPage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
-mkMegustaPage _userId isRegistered mPair currentRatings maybePrevRankMap =
+mkMegustaPage :: UserId -> Bool -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
+mkMegustaPage _userId isRegistered swap mPair currentRatings maybePrevRankMap =
   pageLayout (if isRegistered then User else Guest) "megusta" $ do
 
     case mPair of
-      Just (opt1, opt2) -> mkComparisonSection opt1 opt2
+      Just (opt1, opt2) -> do
+        let (dispOpt1, dispOpt2) = if swap then (opt2, opt1) else (opt1, opt2)
+        mkComparisonSection dispOpt1 dispOpt2
       Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "No more pairs to megusta based on current strategy."
 
     H.div H.! A.class_ "mt-8 p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
@@ -136,7 +138,6 @@ mkComparisonSection opt1 opt2 = do
 
   H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
     H.div H.! A.class_ "flex flex-col sm:flex-row items-center justify-around w-full gap-4" $ do
-
       H.form H.! A.class_ "ds-skeleton md:h-96 md:w-96 h-64 w-64" H.! A.method "post" H.! A.action postUrl H.! A.class_ "w-full sm:w-auto" $ do
         H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue oid1Text)
         H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue oid2Text)
@@ -163,7 +164,6 @@ mkRankingsTable currentRatings maybePrevRankMap = H.div H.! A.class_ "overflow-x
   where
     mkRankingRow :: Maybe RankMap -> (Option, Int) -> H.Html
     mkRankingRow mPrevRankMap (opt, currentRank) = H.tr H.! A.class_ "hover:bg-base-300" $ do
-
       H.td H.! A.class_ "p-3 font-medium" $ do
          H.toHtml currentRank
          H.toHtml (formatRankChange mPrevRankMap opt currentRank)

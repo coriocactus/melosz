@@ -32,7 +32,7 @@ pageLayout acl title content = H.docTypeHtml $ H.html $ do
         meloszTitle
         case acl of 
           User -> H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty
-          Guest -> H.a H.! A.class_ "ds-btn ds-btn-accent" H.! A.href "/login" $ "upgrade access"
+          Guest -> H.a H.! A.class_ "ds-btn ds-btn-primary" H.! A.href "/login" $ "upgrade access"
       content
 
 mkLoginPage :: Text.Text -> H.Html
@@ -42,7 +42,6 @@ mkLoginPage token = H.docTypeHtml $ H.html $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
       meloszTitle
       H.div H.! A.class_ "w-full max-w-sm mx-auto m-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
-        H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Login"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/login" $ do
           H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered ds-validator w-full mb-4" H.! A.required "required"
           H.input H.! A.type_ "hidden" H.! A.name "token" H.! A.value (H.textValue token)
@@ -56,7 +55,6 @@ mkRegistrationPage token = H.docTypeHtml $ H.html $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
       meloszTitle
       H.div H.! A.class_ "w-full max-w-sm mx-auto m-8 p-6 bg-base-200 rounded-lg shadow-lg" $ do
-        H.h2 H.! A.class_ "text-xl font-semibold mb-4 text-center" $ "Register"
         H.form H.! A.class_ "flex flex-col" H.! A.method "POST" H.! A.action "/register" $ do
           H.input H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "email" H.! A.class_ "ds-input ds-input-bordered ds-validator w-full mb-4" H.! A.required "required"
           H.input H.! A.type_ "hidden" H.! A.name "token" H.! A.value (H.textValue token)
