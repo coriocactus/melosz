@@ -83,17 +83,17 @@ encodeTimestamp now = BSU.fromString $ show (floor now :: Int)
 hExpire :: BS.ByteString -> BS.ByteString -> BS.ByteString -> Redis.Redis (Either Redis.Reply Redis.Status)
 hExpire key seconds field = Redis.sendRequest ["HEXPIRE", key, seconds, "FIELDS", "1", field]
 
-setAuthTokenRedis :: BS.ByteString -> BS.ByteString -> Redis.Redis (Redis.TxResult ())
-setAuthTokenRedis token email = Redis.multiExec $ do
+setTokenRedis :: BS.ByteString -> BS.ByteString -> Redis.Redis (Redis.TxResult ())
+setTokenRedis token email = Redis.multiExec $ do
   _ <- Redis.hset "tokens" token email
   _ <- Redis.liftRedis $ hExpire "tokens" "300" token
   return $ pure ()
 
-getAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f (Maybe BSU.ByteString))
-getAuthTokenRedis token = Redis.hget "tokens" token
+getTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f (Maybe BSU.ByteString))
+getTokenRedis token = Redis.hget "tokens" token
 
-delAuthTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Integer)
-delAuthTokenRedis token = Redis.hdel "tokens" [token]
+delTokenRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Integer)
+delTokenRedis token = Redis.hdel "tokens" [token]
 
 findUserByEmailRedis :: Redis.RedisCtx m f => BSU.ByteString -> m (f Bool)
 findUserByEmailRedis email = Redis.sismember "users" email
@@ -118,10 +118,6 @@ loginRedis now email hash = Redis.multiExec $ do
   _ <- Redis.hset (userMetaKey email) "accessed_on" now
   return $ pure ()
 
--- hashes: hgetall from hashes and filter out email
-_logoutRedis :: Redis.RedisCtx m f => [BSU.ByteString] -> m (f Integer)
-_logoutRedis hashes = Redis.hdel "hashes" hashes
-
 registerRedis :: BSU.ByteString -> BSU.ByteString -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
 registerRedis now email hash = Redis.multiExec $ do
   _ <- Redis.sadd "users" [email]
@@ -143,13 +139,40 @@ extendGuestRedis uid hash = Redis.multiExec $ do
   _ <- Redis.expire (userGlickoKey uid) 3600
   return $ pure ()
 
--- hashes: hgetall from hashes and filter out email
-_deleteRedis :: BSU.ByteString -> [BSU.ByteString] -> Redis.Redis (Redis.TxResult ())
-_deleteRedis email hashes = Redis.multiExec $ do
-  _ <- Redis.hdel "hashes" hashes
-  _ <- Redis.srem "users" [email]
-  _ <- Redis.del [(userMetaKey email)]
-  return $ pure ()
+findHashesForEmail :: BS.ByteString -> Redis.Redis (Either Redis.Reply [BS.ByteString])
+findHashesForEmail email = do
+  result <- Redis.hgetall "hashes"
+  case result of
+    Left err -> pure $ Left err
+    Right allPairs -> do
+      let userHashes = [h | (h, e) <- allPairs, e == email]
+      pure $ Right userHashes
+
+logoutRedis :: BS.ByteString -> Redis.Redis (Either Redis.Reply Integer)
+logoutRedis email = do
+  findResult <- findHashesForEmail email
+  case findResult of
+    Left err -> pure $ Left err
+    Right [] -> pure $ Right 0
+    Right userHashes -> Redis.hdel "hashes" userHashes
+
+deleteRedis :: BS.ByteString -> Redis.Redis (Either Redis.Reply (Redis.TxResult ()))
+deleteRedis email = do
+  findResult <- findHashesForEmail email
+  case findResult of
+    Left err -> pure $ Left err
+    Right userHashes -> do
+      let userMeta = userMetaKey email
+          userGlicko = userGlickoKey (UserId email)
+
+      txResult <- Redis.multiExec $ do
+        Monad.unless (null userHashes) $
+          Redis.hdel "hashes" userHashes >> return ()
+        _ <- Redis.srem "users" [email]
+        _ <- Redis.del [userMeta, userGlicko]
+        pure $ pure ()
+
+      pure $ Right txResult
 
 ----
 

@@ -64,7 +64,7 @@ executable app
   other-modules:
     Actions, Redis, Auth, 
     Colour, Templates,
-    Home, Compare
+    Home, Account, Megusta
 
 executable demo-web
   import: common-options, common-warnings, web

@@ -18,7 +18,8 @@ import Redis
 import Auth
 import Templates
 import Home
-import Compare
+import Account
+import Megusta
 
 -- application
 
@@ -62,20 +63,22 @@ application :: AppConfig -> RedisPool -> Wai.Application
 application cfg pool = Gzip.gzip Gzip.defaultGzipSettings $ RL.logStdout $
   serveWithContext butler underButler (servants cfg pool)
 
-servants :: AppConfig -> RedisPool -> Server API
-servants cfg pool = staticServant :<|> authServant pool
-  :<|> homeServant cfg pool
-  :<|> compareServant cfg pool
-
-type API = StaticAPI :<|> AuthAPI
-  :<|> Protect :> HomeAPI
-  :<|> Protect :> CompareAPI
-
 butler :: Proxy API
 butler = Proxy
 
 underButler :: Context '[ErrorFormatters]
 underButler = errorFormatters :. EmptyContext
+
+servants :: AppConfig -> RedisPool -> Server API
+servants cfg pool = staticServant :<|> authServant pool
+  :<|> homeServant cfg pool
+  :<|> accountServant cfg pool
+  :<|> megustaServant cfg pool
+
+type API = StaticAPI :<|> AuthAPI
+  :<|> Protect :> HomeAPI
+  :<|> Protect :> AccountAPI
+  :<|> Protect :> MegustaAPI
 
 staticServant :: Server StaticAPI
 staticServant = serveDirectoryWebApp "styles"

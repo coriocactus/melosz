@@ -61,8 +61,8 @@ initUser pool maybeAuth destination =
           Nothing -> handleMissingAuth pool destination
           Just (isRegistered, userId) -> do
             case isRegistered of
-              True -> pure (userId, True)
               False -> extendGuest pool userId hash >> pure (userId, False)
+              True -> pure (userId, True)
 
 handleMissingAuth :: RedisPool -> Text.Text -> Handler a
 handleMissingAuth pool destination = do
@@ -160,7 +160,7 @@ authServant pool = emptyServer
             Right True -> handleDuplicateRegistration email
             Right False -> do
               let token = encodeText $ generateToken now [ "123", "234", "345", email ]
-              _ <- execRedis pool $ setAuthTokenRedis token email
+              _ <- execRedis pool $ setTokenRedis token email
 
               -- TODO SEND EMAIL
               MonadIO.liftIO $ putStrLn $ "Registration confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
@@ -182,7 +182,7 @@ authServant pool = emptyServer
             Right False -> handlePhantomLogin email
             Right True -> do
               let token = encodeText $ generateToken now [ "123", "234", "345", email ]
-              _ <- execRedis pool $ setAuthTokenRedis token email
+              _ <- execRedis pool $ setTokenRedis token email
 
               -- TODO SEND EMAIL
               MonadIO.liftIO $ putStrLn $ "Login confirmation: " ++ show ("http://localhost:5002/auth/" <> token)
@@ -192,12 +192,12 @@ authServant pool = emptyServer
     handleGetAuth token = do
       now <- MonadIO.liftIO POSIXTime.getPOSIXTime
 
-      maybeEmail <- execRedis pool $ getAuthTokenRedis (encodeText token)
+      maybeEmail <- execRedis pool $ getTokenRedis (encodeText token)
       case maybeEmail of
         Left err -> handleRedisError err
         Right Nothing -> handleTokenNotFound
         Right (Just email) -> do
-          _ <- execRedis pool $ delAuthTokenRedis (encodeText token)
+          _ <- execRedis pool $ delTokenRedis (encodeText token)
           let tokenState = ["123", "234", "345", email]
 
           case validateToken now token tokenState of
@@ -235,7 +235,7 @@ handleTokenNotFound :: Handler a
 handleTokenNotFound = do
   MonadIO.liftIO $ putStrLn $ "Authentication link not found"
   exec $ Left (err404 { errBody = R.renderHtml template})
-  where template = fastMessage "invalid authentication" ("/login", "try again")
+  where template = fastMessage "invalid authentication" ("/", "home")
 
 handleValidationError :: Text.Text -> Handler a
 handleValidationError err = do

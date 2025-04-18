@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Compare where
+module Megusta where
 
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
@@ -41,23 +41,23 @@ instance Form.FromForm ChooseFormData where
     <$> Form.parseUnique "winnerId" form
     <*> Form.parseUnique "loserId" form
 
-type CompareTestAPI = "compare" :> "test" :> Get '[JSON] NoContent
-type CompareGetAPI = "compare" :> Get '[ServantBlaze.HTML] H.Html
-type ComparePostAPI = "compare" :> ReqBody '[FormUrlEncoded] ChooseFormData :> Post '[ServantBlaze.HTML] H.Html
+type MegustaTestAPI = "megusta" :> "test" :> Get '[JSON] NoContent
+type MegustaGetAPI = "megusta" :> Get '[ServantBlaze.HTML] H.Html
+type MegustaPostAPI = "megusta" :> ReqBody '[FormUrlEncoded] ChooseFormData :> Post '[ServantBlaze.HTML] H.Html
 
-type CompareAPI = EmptyAPI
-  :<|> CompareTestAPI
-  :<|> CompareGetAPI
-  :<|> ComparePostAPI
+type MegustaAPI = EmptyAPI
+  :<|> MegustaTestAPI
+  :<|> MegustaGetAPI
+  :<|> MegustaPostAPI
 
-compareServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server CompareAPI
-compareServant cfg pool auth = emptyServer
-  :<|> handleTestCompare
-  :<|> handleGetCompareData
-  :<|> handlePostCompare
+megustaServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server MegustaAPI
+megustaServant cfg pool auth = emptyServer
+  :<|> handleTestMegusta
+  :<|> handleGetMegustaData
+  :<|> handlePostMegusta
   where
-    handleTestCompare :: Handler NoContent
-    handleTestCompare = do
+    handleTestMegusta :: Handler NoContent
+    handleTestMegusta = do
       MonadIO.liftIO $ putStrLn $ show auth
       -- uid <- initUser pool auth
       -- MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by " ++ show uid
@@ -72,18 +72,18 @@ compareServant cfg pool auth = emptyServer
       mPair <- getNextComparisonPair uid
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
-      pure $ Right $ mkComparePage uid isRegistered mPair currentRatings maybePrevRankMap
+      pure $ Right $ mkMegustaPage uid isRegistered mPair currentRatings maybePrevRankMap
 
-    handleGetCompareData :: Handler H.Html
-    handleGetCompareData = do
-      (uid, isRegistered) <- initUser pool auth "/compare"
-      MonadIO.liftIO $ putStrLn $ "Serving /compare for " ++ show uid
+    handleGetMegustaData :: Handler H.Html
+    handleGetMegustaData = do
+      (uid, isRegistered) <- initUser pool auth "/megusta"
+      MonadIO.liftIO $ putStrLn $ "Serving /megusta for " ++ show uid
       execApp cfg $ fetchAndBuildSession uid isRegistered Nothing
 
-    handlePostCompare :: ChooseFormData -> Handler H.Html
-    handlePostCompare submission = do
+    handlePostMegusta :: ChooseFormData -> Handler H.Html
+    handlePostMegusta submission = do
       (uid, isRegistered) <- initUser pool auth "/"
-      MonadIO.liftIO $ putStrLn $ "Processing POST /compare for " ++ show uid ++ " with data: " ++ show submission
+      MonadIO.liftIO $ putStrLn $ "Processing POST /megusta for " ++ show uid ++ " with data: " ++ show submission
       let winnerId = OptionId (TextEnc.encodeUtf8 $ formWinnerId submission)
           loserId  = OptionId (TextEnc.encodeUtf8 $ formLoserId submission)
 
@@ -113,18 +113,18 @@ compareServant cfg pool auth = emptyServer
                 template = MessageTemplate
                   { messageTitle = "error"
                   , messageHeading = "option id not found"
-                  , messageLink = ("/compare", "try again")
+                  , messageLink = ("/megusta", "try again")
                   }
 
-mkComparePage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
-mkComparePage _userId isRegistered mPair currentRatings maybePrevRankMap =
-  pageLayout "a/b" $ do
+mkMegustaPage :: UserId -> Bool -> Maybe (Option, Option) -> [(Option, Double)] -> Maybe RankMap -> H.Html
+mkMegustaPage _userId isRegistered mPair currentRatings maybePrevRankMap =
+  pageLayout (if isRegistered then User else Guest) "megusta" $ do
 
     Monad.unless isRegistered mkGuestBanner
 
     case mPair of
       Just (opt1, opt2) -> mkComparisonSection opt1 opt2
-      Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "No more pairs to compare based on current strategy."
+      Nothing -> H.div H.! A.class_ "text-center text-lg text-success p-4 bg-success/10 rounded-lg" $ "No more pairs to megusta based on current strategy."
 
     H.div H.! A.class_ "mt-8 p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
       H.h2 H.! A.class_ "text-xl font-semibold mb-4" $ "Current Rankings"
@@ -134,7 +134,7 @@ mkComparisonSection :: Option -> Option -> H.Html
 mkComparisonSection opt1 opt2 = do
   let oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
       oid2Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt2)
-      postUrl = H.textValue $ Text.pack $ "/compare"
+      postUrl = H.textValue $ Text.pack $ "/megusta"
 
   H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow" $ do
     H.div H.! A.class_ "flex flex-col sm:flex-row items-center justify-around w-full gap-4" $ do
