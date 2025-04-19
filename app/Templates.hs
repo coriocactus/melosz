@@ -112,8 +112,8 @@ mkMessageTemplate template = H.docTypeHtml $ H.html $ do
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "min-h-screen flex flex-col items-center justify-center p-4" $ do
       meloszTitle
-      H.div H.! A.class_ "max-w-md w-full text-center p-6 bg-base-200 rounded-lg shadow-lg" $ do
-        H.h1 H.! A.class_ "text-2xl font-bold mb-4" $ H.toHtml $ messageHeading template
+      H.div H.! A.class_ "max-w-md w-full text-center m-6 p-6 bg-base-200 rounded-lg shadow-lg" $ do
+        H.h1 H.! A.class_ "text-2xl font-bold" $ H.toHtml $ messageHeading template
         H.a H.! A.class_ "ds-link ds-link-primary ds-link-hover text-lg" H.! A.href (H.textValue $ fst $ messageLink template) $
           H.toHtml $ snd $ messageLink template
 
