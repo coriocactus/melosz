@@ -5,7 +5,6 @@ module Megusta where
 import qualified Control.Monad as Monad
 import qualified Control.Monad.IO.Class as MonadIO
 import qualified Control.Monad.Reader as MonadReader
-import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
@@ -62,8 +61,8 @@ megustaServant cfg pool auth = emptyServer
     handleTestMegusta :: Handler NoContent
     handleTestMegusta = do
       MonadIO.liftIO $ putStrLn $ show auth
-      -- uid <- initUser pool auth
-      -- MonadIO.liftIO $ putStrLn $ "Test endpoint accessed by " ++ show uid
+      (uid, isRegistered) <- initUser pool auth "/"
+      MonadIO.liftIO $ putStrLn $ "Megusta test endpoint accessed by " ++ show (uid, isRegistered)
       pure NoContent
 
     fetchAndBuildSession :: UserId -> Bool -> App (Either ServerError H.Html)
@@ -190,7 +189,6 @@ mkRankingsTableAgg currentRatings = H.div H.! A.class_ "overflow-x-auto" $ H.tab
   H.thead $ H.tr $ do
     H.th H.! A.class_ "text-left p-3" $ "Rank"
     H.th H.! A.class_ "text-left p-3" $ "Option"
-    H.th H.! A.class_ "text-left p-3" $ "Rating"
   H.tbody $ do
     let currentWithRanks = ratingsToRankings currentRatings
     mapM_ mkRankingRowAgg currentWithRanks
@@ -199,8 +197,6 @@ mkRankingsTableAgg currentRatings = H.div H.! A.class_ "overflow-x-auto" $ H.tab
     mkRankingRowAgg (opt, currentRank) = H.tr H.! A.class_ "hover:bg-base-300" $ do
       H.td H.! A.class_ "p-3 font-medium" $ H.toHtml currentRank
       H.td H.! A.class_ "p-3" $ H.toHtml (BSC.unpack $ optionName opt)
-      let currentRating = Maybe.fromMaybe 0.0 (lookup opt currentRatings)
-      H.td H.! A.class_ "p-3" $ H.toHtml (Printf.printf "%.1f" currentRating :: String)
 
 -- utils
 
