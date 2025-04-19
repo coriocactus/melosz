@@ -20,6 +20,7 @@ import Templates
 import Home
 import Account
 import Megusta
+import Planck
 
 -- application
 
@@ -74,11 +75,13 @@ servants cfg pool = staticServant :<|> authServant pool
   :<|> homeServant cfg pool
   :<|> accountServant cfg pool
   :<|> megustaServant cfg pool
+  :<|> planckServant cfg pool
 
 type API = StaticAPI :<|> AuthAPI
   :<|> Protect :> HomeAPI
   :<|> Protect :> AccountAPI
   :<|> Protect :> MegustaAPI
+  :<|> Protect :> PlanckAPI
 
 staticServant :: Server StaticAPI
 staticServant = serveDirectoryWebApp "styles"

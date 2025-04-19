@@ -13,7 +13,6 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
 import qualified Data.Time.Clock.POSIX as POSIXTime
 import qualified Servant.HTML.Blaze as ServantBlaze
-import qualified Text.Blaze.Html.Renderer.Utf8 as R
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html5.Attributes as A
 import qualified Web.FormUrlEncoded as Form
@@ -69,12 +68,6 @@ verifyUser pool maybeAuth =
             case isRegistered of
               False -> handleUnauthorized
               True -> pure uid
-
-handleUnauthorized :: Handler a
-handleUnauthorized = do
-  MonadIO.liftIO $ putStrLn $ "Unauthorized"
-  exec $ Left (err401 { errBody = R.renderHtml template})
-  where template = fastMessage "unauthorized" ("/", "home")
 
 accountServant :: AppConfig -> RedisPool -> Maybe AuthHeader -> Server AccountAPI
 accountServant _cfg pool auth = emptyServer

@@ -231,6 +231,12 @@ handlePhantomLogin email = do
   exec $ Left (err409 { errBody = R.renderHtml template})
   where template = fastMessage "user not found" ("/register", "register")
 
+handleUnauthorized :: Handler a
+handleUnauthorized = do
+  MonadIO.liftIO $ putStrLn $ "Unauthorized"
+  exec $ Left (err401 { errBody = R.renderHtml template})
+  where template = fastMessage "unauthorized" ("/", "home")
+
 handleTokenNotFound :: Handler a
 handleTokenNotFound = do
   MonadIO.liftIO $ putStrLn $ "Authentication link not found"
