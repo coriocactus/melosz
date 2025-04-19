@@ -60,14 +60,19 @@ mkRedisHandle pool options = StateHandle
   , hEnsureUser     = \uid opts -> ensureUserRedis pool uid opts
   }
 
-----
-
--- | Redis Schema (note: email = userId)
--- [hash] "tokens": [<token> -> <email>]
--- [hash] "hashes": [<hash> -> <email>]
--- [set]  "users" -> [<email>]
--- [hash] [user:<email>] -> [hash -> <hash>, created_on -> <created_on>, accessed_on -> <accessed_on>]
--- [hash] [glicko:<email>] -> [<oid> -> <glicko_json>]
+-- | Redis Schema (note: email = uid)
+-- |----------|--------------------------|-------------------|-----------------|---------------------------------------------------------------------
+-- | key type | key pattern              | field/member      | value           | ttl / notes
+-- |----------|--------------------------|-------------------|-----------------|---------------------------------------------------------------------
+-- | hash     | "tokens"                 | <token>           | <email>         | 300s (5 min); for email confirmations (login/register/logout/delete).
+-- | hash     | "hashes"                 | <hash>            | <email>         | guests: 3600s (1 hr); registered: permanent until logout/delete. maps auth hash to user email.
+-- | set      | "users"                  | <email>           | -               | permanent until delete. stores registered user emails.
+-- | hash     | user:<email>             | hash              | <hash>          | (only for registered users) permanent until delete. user metadata hash.
+-- |          |                          | created_on        | <timestamp>     | (only for registered users)
+-- |          |                          | accessed_on       | <timestamp>     | (only for registered users)
+-- | hash     | glicko:<email>           | <oid>             | <glicko_json>   | guests: 3600s (1 hr); registered: permanent until delete. user glicko ratings per option.
+-- | list     | glicko:<email>:recents   | <canonical_oid>   | -               | guests: 3600s (1 hr); registered: permanent until delete. capped list of recent comparisons to avoid repeats.
+-- |----------|--------------------------|-------------------|-----------------|---------------------------------------------------------------------
 
 userMetaKey :: BS.ByteString -> BS.ByteString
 userMetaKey email = "user:" <> email
@@ -138,6 +143,7 @@ extendGuestRedis :: UserId -> BSU.ByteString -> Redis.Redis (Redis.TxResult ())
 extendGuestRedis uid hash = Redis.multiExec $ do
   _ <- Redis.liftRedis $ hExpire "hashes" "3600" hash
   _ <- Redis.expire (userGlickoKey uid) 3600
+  _ <- Redis.expire (recentCompsListKey uid) 3600
   return $ pure ()
 
 findHashesForEmail :: BS.ByteString -> Redis.Redis (Either Redis.Reply [BS.ByteString])
@@ -165,12 +171,13 @@ deleteRedis email = do
     Right userHashes -> do
       let userMeta = userMetaKey email
           userGlicko = userGlickoKey (UserId email)
+          userGlickoRecents = recentCompsListKey (UserId email)
 
       txResult <- Redis.multiExec $ do
         Monad.unless (null userHashes) $
           Redis.hdel "hashes" userHashes >> return ()
         _ <- Redis.srem "users" [email]
-        _ <- Redis.del [userMeta, userGlicko]
+        _ <- Redis.del [userMeta, userGlicko, userGlickoRecents]
         pure $ pure ()
 
       pure $ Right txResult

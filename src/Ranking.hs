@@ -172,7 +172,6 @@ aggregateBorda numOptions userRankMaps =
   let weights = map fromIntegral $ reverse [0 .. numOptions - 1]
   in aggregateByScoringRule userRankMaps weights
 
-
 -- | Kemeny-Young Method: Finds the consensus ranking that minimizes the sum of
 -- | Kendall tau distances to the individual user rankings.
 -- | WARNING: Computationally expensive O(m * k! * k^2), where m=users, k=options. Use with caution.
