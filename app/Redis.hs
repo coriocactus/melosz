@@ -7,6 +7,7 @@ import qualified Control.Monad.IO.Class as MonadIO
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
@@ -173,6 +174,45 @@ deleteRedis email = do
         pure $ pure ()
 
       pure $ Right txResult
+
+----
+
+recentComparisonHistorySize :: Int
+recentComparisonHistorySize = 10
+
+recentCompsListKey :: UserId -> BS.ByteString
+recentCompsListKey (UserId uid) = "glicko:" <> uid <> ":recents"
+
+pairToRedisKey :: (Option, Option) -> BS.ByteString
+pairToRedisKey (o1, o2) =
+  let (OptionId id1) = optionId o1
+      (OptionId id2) = optionId o2
+  in if id1 <= id2 then id1 <> ":" <> id2 else id2 <> ":" <> id1
+
+recordRecentComparisonListRedis :: RedisPool -> UserId -> (Option, Option) -> IO (Either Redis.Reply ())
+recordRecentComparisonListRedis pool uid pair = do
+  let key = recentCompsListKey uid
+      member = pairToRedisKey pair
+      maxSize = recentComparisonHistorySize
+      maxIndex = fromIntegral (max 0 (maxSize - 1))
+  result <- runRedisAction pool $ Redis.multiExec $ do
+    _ <- Redis.lpush key [member]
+    _ <- Redis.ltrim key 0 maxIndex
+    pure $ pure ()
+  case result of
+    Redis.TxError err -> pure $ Left (Redis.Error $ BSC.pack $ "Redis transaction error: " ++ err)
+    Redis.TxAborted -> pure $ Left (Redis.Error "Redis transaction aborted")
+    Redis.TxSuccess _ -> pure $ Right ()
+
+getRecentComparisonListKeysRedis :: RedisPool -> UserId -> IO (Either Redis.Reply (Set.Set BS.ByteString))
+getRecentComparisonListKeysRedis pool uid = do
+  let key = recentCompsListKey uid
+      maxSize = recentComparisonHistorySize
+      maxIndex = fromIntegral (max 0 (maxSize - 1))
+  result <- runRedisAction pool $ Redis.lrange key 0 maxIndex
+  case result of
+    Left err -> pure $ Left err
+    Right members -> pure $ Right $ Set.fromList members
 
 ----
 

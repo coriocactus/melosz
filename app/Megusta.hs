@@ -9,6 +9,7 @@ import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Servant.HTML.Blaze as ServantBlaze
 import qualified Text.Blaze.Html.Renderer.Utf8 as R
@@ -68,10 +69,10 @@ megustaServant cfg pool auth = emptyServer
     fetchAndBuildSession :: UserId -> Bool -> App (Either ServerError H.Html)
     fetchAndBuildSession uid isRegistered = do
       MonadIO.liftIO $ putStrLn $ "Fetching data for user: " ++ show uid
-      optionsList <- Set.toList <$> MonadReader.asks configOptions
       setupUser uid
       swap <- MonadIO.liftIO Random.randomIO
-      mPair <- getNextComparisonPair uid
+      mPair <- getNextMegustaComparisonPair pool uid
+      optionsList <- Set.toList <$> MonadReader.asks configOptions
       currentRatings <- getUserRatings uid optionsList
 
       MonadIO.liftIO $ putStrLn $ "Next pair for " ++ show uid ++ ": " ++ show mPair
@@ -112,7 +113,10 @@ megustaServant cfg pool auth = emptyServer
           (Just winnerOpt, Just loserOpt) -> do
             MonadIO.liftIO $ putStrLn $ "Recording comparison for " ++ show uid ++ ": " ++ show (optionName winnerOpt) ++ " (Win) vs " ++ show (optionName loserOpt)
             updateRatings uid winnerOpt loserOpt Win
-            MonadIO.liftIO $ putStrLn $ "State updated for " ++ show uid
+            eRecordResult <- MonadIO.liftIO $ recordRecentComparisonListRedis pool uid (winnerOpt, loserOpt)
+            case eRecordResult of
+              Left redisErr -> MonadIO.liftIO $ putStrLn $ "Redis error recording recent comparison: " ++ show redisErr
+              Right () -> MonadIO.liftIO $ putStrLn $ "State updated and comparison recorded in list for " ++ show uid
             fetchAndBuildSession uid isRegistered
           _ -> do
             MonadIO.liftIO $ putStrLn $ "Error: Option ID not found (" ++ show winnerId ++ " or " ++ show loserId ++ ")"
@@ -205,3 +209,30 @@ unUserId (UserId bs) = bs
 
 unOptionId :: OptionId -> BSC.ByteString
 unOptionId (OptionId bs) = bs
+
+pairToRedisKeyInternal :: (Option, Option) -> BS.ByteString
+pairToRedisKeyInternal (o1, o2) =
+  let (OptionId id1) = optionId o1
+      (OptionId id2) = optionId o2
+  in if id1 <= id2 then id1 <> ":" <> id2 else id2 <> ":" <> id1
+
+getNextMegustaComparisonPair :: RedisPool -> UserId -> App (Maybe (Option, Option))
+getNextMegustaComparisonPair pool uid = do
+  optionsSet <- MonadReader.asks configOptions
+  let allPairs = getAllOptionPairsSet optionsSet
+  ensureStorableUser uid optionsSet
+
+  eRecentKeys <- MonadIO.liftIO $ getRecentComparisonListKeysRedis pool uid
+  case eRecentKeys of
+    Left err -> do
+      MonadIO.liftIO $ putStrLn $ "Redis error fetching recent comparison list: " ++ show err
+      selectMaxInfoPair uid allPairs
+    Right recentKeys -> do
+      let allowedPairs = Set.filter (\p -> pairToRedisKeyInternal p `Set.notMember` recentKeys) allPairs
+      if Set.null allowedPairs
+        then do
+          MonadIO.liftIO $ putStrLn $ "All pairs shown recently for user " ++ show uid ++ ". Falling back."
+          selectMaxInfoPair uid allPairs
+        else do
+          MonadIO.liftIO $ putStrLn $ "Selecting from " ++ show (Set.size allowedPairs) ++ " allowed pairs for user " ++ show uid
+          selectMaxInfoPair uid allowedPairs
