@@ -101,6 +101,80 @@ calculateSRA allOptions userRankMaps =
     getItemVariance itemId =
       calculateItemRankVariance itemId (Map.keysSet userRankMaps) userRankMaps
 
+-- | Specialized SRA calculation optimized for exactly two rankings.
+-- | Produces a function that computes the cumulative SRA sum up to a given depth `x`.
+-- |
+-- | Args:
+-- | - allOptions: A set of all possible options being ranked.
+-- | - ranks1: The RankMap for the first user.
+-- | - ranks2: The RankMap for the second user.
+-- |
+-- | Returns:
+-- | - A function `(Int -> Double)`. Given a depth `x`, this function returns
+-- |   the sum of SRA values from depth 1 to `x`.
+-- | - If no options are provided, the returned function always returns 0.
+calculateSRA2CumulativeSumFunc :: Set.Set Option -> RankMap -> RankMap -> (Int -> Double)
+calculateSRA2CumulativeSumFunc allOptions ranks1 ranks2
+  | numOptions == 0 = const 0.0
+  | otherwise       = lookupCumulativeSum
+  where
+    optionIds = Set.map optionId allOptions
+    numOptions = Set.size optionIds
+
+    -- 1. Precompute item variances for all options
+    itemVariances :: Map.Map OptionId Double
+    itemVariances = Map.fromSet calculateVarianceForOption optionIds
+
+    calculateVarianceForOption :: OptionId -> Double
+    calculateVarianceForOption oid =
+      case (Map.lookup oid ranks1, Map.lookup oid ranks2) of
+        (Just r1, Just r2) -> let diff = fromIntegral r1 - fromIntegral r2 in (diff * diff) / 2.0 -- Simplified variance for n=2
+        _                  -> 0.0 -- Variance is 0 if only one or zero ranks exist
+
+    -- 2. Precompute cumulative sets S_d for all depths d efficiently
+    -- Stores (Set of items added at depth d, Cumulative set S_d)
+    cumulativeSets :: [(Set.Set OptionId, Set.Set OptionId)]
+    cumulativeSets = List.scanl' updateCumulativeSet (Set.empty, Set.empty) [1..numOptions]
+
+    updateCumulativeSet :: (Set.Set OptionId, Set.Set OptionId) -> Int -> (Set.Set OptionId, Set.Set OptionId)
+    updateCumulativeSet (_, prevS_d) d = (itemsAtDepthD, newS_d)
+      where
+        filterItemsAtDepth :: RankMap -> Set.Set OptionId
+        filterItemsAtDepth rMap = Map.keysSet $ Map.filterWithKey (\oid r -> r == d && Set.notMember oid prevS_d) rMap
+
+        itemsAtDepthD = filterItemsAtDepth ranks1 `Set.union` filterItemsAtDepth ranks2
+        newS_d = Set.union prevS_d itemsAtDepthD
+
+    -- Helper to get S_d from the precomputed structure (index is d)
+    getS_d :: Int -> Set.Set OptionId
+    getS_d d
+      | d > 0 && d <= numOptions = snd (cumulativeSets !! d)
+      | otherwise                = Set.empty
+
+    -- 3. Calculate SRA value for each depth d
+    sraValues :: [Double]
+    sraValues = map calculateSraAtDepth [1 .. numOptions]
+
+    calculateSraAtDepth :: Int -> Double
+    calculateSraAtDepth d =
+      let cumulativeSetIds = getS_d d
+          setSize = Set.size cumulativeSetIds
+      in if setSize == 0 then 0.0 else
+            let sumOfVariances = sum $ map (\oid -> Map.findWithDefault 0.0 oid itemVariances) (Set.toList cumulativeSetIds)
+                avgVariance = sumOfVariances / fromIntegral setSize
+            in sqrt avgVariance
+
+    -- 4. Precompute cumulative sums of SRA values
+    cumulativeSraSums :: [Double]
+    cumulativeSraSums = List.scanl1 (+) sraValues
+
+    -- 5. Create the lookup function
+    lookupCumulativeSum :: Int -> Double
+    lookupCumulativeSum x
+      | x < 1          = 0.0
+      | x >= numOptions = Maybe.fromMaybe 0.0 (Maybe.listToMaybe $ reverse cumulativeSraSums) -- Return total sum if x >= n
+      | otherwise      = cumulativeSraSums !! (x - 1)
+
 -- ===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|===|
 -- | Rank Aggregation Methods
 
