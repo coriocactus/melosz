@@ -34,8 +34,11 @@ planckServant _cfg pool auth = emptyServer
 mkPlanckSpace :: UserId -> H.Html
 mkPlanckSpace _uid =
   pageLayout User "planck space" $ do
-    H.div H.! A.class_ "grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16" $ do
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""
+    H.div H.! A.class_ "grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8" $ do
+      H.div H.! A.class_ "mt-auto mb-auto" $
+        H.form H.! A.method "POST" H.! A.action "/planck" H.! A.class_ "flex flex-col gap-2" $ do
+          H.input H.! A.class_ "ds-input ds-input-primary ds-validator w-full" H.! A.type_ "email" H.! A.name "email" H.! A.placeholder "confirm email to enter planck space" H.! A.autocomplete "email"
+          H.button H.! A.class_ "ds-btn ds-btn-primary" H.! A.type_ "submit" $ "submit"
+      H.div H.! A.class_ "h-[40dvh] bg-red-50 justify-self-stretch transition-transform hover:scale-101 duration-300 rounded-lg" $ ""
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ ""

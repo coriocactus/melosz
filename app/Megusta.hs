@@ -167,7 +167,7 @@ mkComparisonSection opt1 opt2 currentRatings = do
     buttonHtml :: Option -> Text.Text -> Text.Text -> H.Html
     buttonHtml opt winnerId loserId =
       H.div H.! A.class_ "ds-indicator" $ do
-        H.span H.! A.class_ "ds-indicator-item ds-indicator-top ds-indicator-center ds-badge ds-badge-primary ds-badge-lg lg:ds-badge-xl" $ H.toHtml (findRank opt)
+        H.span H.! A.class_ "ds-indicator-item ds-indicator-top ds-indicator-center ds-badge ds-badge-primary ds-badge-sm lg:ds-badge-md" $ H.toHtml (findRank opt)
         H.form H.! A.class_ "ds-skeleton flex flex-col items-center justify-end p-4 w-[80dvw] lg:w-[40dvw] aspect-square relative transition-none" H.! A.method "post" H.! A.action postUrl $ do
           H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue winnerId)
           H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue loserId)

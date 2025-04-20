@@ -32,8 +32,8 @@ homeServant _cfg pool auth = emptyServer
 mkHomePage :: UserId -> Bool -> H.Html
 mkHomePage _uid isRegistered =
   pageLayout (if isRegistered then User else Guest) "melosz" $ do
-    H.div H.! A.class_ "grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16" $ do
-      H.a H.! A.href "/megusta" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "megusta"
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "realtime"
-      H.a H.! A.href "/planck" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "planck"
-      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-96 justify-self-stretch transition-transform hover:scale-101 duration-300" $ "doubles"
+    H.div H.! A.class_ "grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8" $ do
+      H.a H.! A.href "/megusta" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ "megusta"
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ "realtime"
+      H.a H.! A.href "/planck" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ "planck"
+      H.a H.! A.href "#" H.! A.class_ "ds-skeleton h-[40dvh] justify-self-stretch transition-transform hover:scale-101 duration-300" $ "doubles"
