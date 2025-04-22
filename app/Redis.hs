@@ -26,7 +26,7 @@ type RedisPool = Pool.Pool Redis.Connection
 mkRedisConn :: IO Redis.Connection
 mkRedisConn = Redis.checkedConnect Redis.defaultConnectInfo
   { Redis.connectHost = "localhost"
-  , Redis.connectPort = Redis.PortNumber 6379
+  , Redis.connectPort = Redis.PortNumber 7480
   }
 
 mkRedisPool :: IO RedisPool

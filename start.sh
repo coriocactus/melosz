@@ -2,7 +2,7 @@
 
 set -e
 
-docker run -d --name redis -p 6379:6379 -v redis-data:/data \
+docker run -d --name melosz-redis -p 7480:6379 -v melosz-data:/data \
   redis:latest redis-server \
   --appendonly yes \
   --appendfsync everysec \
