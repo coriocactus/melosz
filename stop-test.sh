@@ -2,4 +2,4 @@
 
 set -e
 
-docker stop redis
+docker stop melosz-test-redis
