@@ -11,6 +11,7 @@ import qualified Data.ByteString.Base64.URL as Base64BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Digest.Pure.SHA as SHA
+import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEnc
 import qualified Data.Time.Clock.POSIX as POSIXTime
@@ -18,10 +19,10 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import qualified Data.Word as Word
 import qualified Database.Redis as Redis
-import qualified System.Random as Random
 import qualified Servant.HTML.Blaze as ServantBlaze
-import qualified Text.Blaze.Html5 as H
+import qualified System.Random as Random
 import qualified Text.Blaze.Html.Renderer.Utf8 as R
+import qualified Text.Blaze.Html5 as H
 import qualified Web.FormUrlEncoded as Form
 
 import Servant
@@ -81,7 +82,10 @@ handleMissingAuth pool destination = do
     }
 
 extractHash :: Text.Text -> Maybe Text.Text
-extractHash txt = Text.stripPrefix (Text.pack "x-auth-hash=") txt
+extractHash cookieHeader = do
+  let cookies = map Text.strip $ Text.splitOn ";" cookieHeader
+      authCookie = List.find (Text.isPrefixOf "x-auth-hash=") cookies
+  authCookie >>= Text.stripPrefix "x-auth-hash="
 
 getUserByHash :: RedisPool -> Hash -> Handler (Maybe (Bool, UserId))
 getUserByHash pool hash = do
