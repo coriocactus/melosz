@@ -19,7 +19,7 @@ pageHead title more = H.head $ do
   more
 
 meloszTitle :: H.Html
-meloszTitle = H.a H.! A.href "/" H.! A.class_ "md:text-3xl text-xl font-bold hover:text-primary" $ "melosz"
+meloszTitle = H.a H.! A.href "/" H.! A.class_ "text-xl md:text-3xl font-bold hover:text-primary" $ "melosz"
 
 data AccessRight = Guest | User deriving (Eq, Show)
 
@@ -28,7 +28,7 @@ pageLayout acl title content = H.docTypeHtml $ H.html $ do
   pageHead title mempty
   H.body H.! A.class_ "min-h-screen bg-base-100 text-base-content" $ do
     H.div H.! A.class_ "container mx-auto p-4 sm:p-6 md:p-8" $ do
-      H.div H.! A.class_ "flex justify-between items-center h-8 md:h-12 mb-6" $ do
+      H.div H.! A.class_ "flex justify-between items-center h-8 sm:h-10 md:h-12 mb-6" $ do
         meloszTitle
         case acl of 
           User -> H.a H.! A.class_ "ds-skeleton h-full aspect-square rounded-full" H.! A.href "/account" $ mempty

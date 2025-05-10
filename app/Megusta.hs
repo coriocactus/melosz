@@ -147,10 +147,10 @@ mkMegustaPage _userId isRegistered swap mPair currentRatings =
 
 mkComparisonSection :: Option -> Option -> [(Option, Double)] -> H.Html
 mkComparisonSection opt1 opt2 currentRatings = do
-  H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow inline-block" $ do
-    H.div H.! A.class_ "flex flex-col lg:flex-row items-center justify-around gap-4 sm:gap-8 md:gap-12 lg:gap-16" $ do
+  H.div H.! A.class_ "p-4 sm:p-6 bg-base-200 rounded-lg shadow inline-block w-full" $ do
+    H.div H.! A.class_ "grid grid-rows-3 grid-rows-[1fr_auto_1fr] lg:grid-rows-1 lg:grid-cols-[1fr_auto_1fr] items-center gap-4 w-full" $ do
       buttonHtml opt1 oid1Text oid2Text
-      H.span H.! A.class_ "font-bold text-lg my-4 sm:my-0" $ "VS"
+      H.span H.! A.class_ "font-bold text-lg flex justify-center items-center" $ "VS"
       buttonHtml opt2 oid2Text oid1Text
   where
     oid1Text = TextEnc.decodeUtf8 (unOptionId $ optionId opt1)
@@ -166,9 +166,9 @@ mkComparisonSection opt1 opt2 currentRatings = do
 
     buttonHtml :: Option -> Text.Text -> Text.Text -> H.Html
     buttonHtml opt winnerId loserId =
-      H.div H.! A.class_ "ds-indicator" $ do
+      H.div H.! A.class_ "ds-indicator w-full" $ do
         H.span H.! A.class_ "ds-indicator-item ds-indicator-top ds-indicator-center ds-badge ds-badge-primary ds-badge-sm lg:ds-badge-md" $ H.toHtml (findRank opt)
-        H.form H.! A.class_ "ds-skeleton flex flex-col items-center justify-end p-4 w-[80dvw] lg:w-[40dvw] aspect-square relative transition-none" H.! A.method "post" H.! A.action postUrl $ do
+        H.form H.! A.class_ "ds-skeleton flex flex-col items-center justify-end p-4 w-full aspect-square relative transition-none" H.! A.method "post" H.! A.action postUrl $ do
           H.input H.! A.type_ "hidden" H.! A.name "winnerId" H.! A.value (H.textValue winnerId)
           H.input H.! A.type_ "hidden" H.! A.name "loserId" H.! A.value (H.textValue loserId)
           H.button H.! A.type_ "submit" H.! A.class_ "ds-btn ds-btn-primary w-full absolute bottom-0" $ do
