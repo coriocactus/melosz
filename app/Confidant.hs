@@ -1,0 +1,1 @@
+module Confidant where
